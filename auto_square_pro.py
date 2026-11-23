@@ -366,8 +366,9 @@ def fetch_market_portfolio() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
         "vol_str": format_volume_millions(btc_raw["quote_volume"]),
     }
 
-    # 2. Chọn Mã 1 từ rổ Coin Top 10 (xoay vòng thông minh giữa Top 1-3 mã sôi động nhất
-    # theo phiên Sáng / Trưa / Tối để 3 bài trong cùng 1 ngày không bị trùng lặp 1 mã duy nhất)
+    # 2. Chọn Mã 1 từ rổ Coin Top 10 (xoay vòng thông minh giữa Top 1-5 mã sôi động nhất
+    # theo 5 phiên Sáng / Trưa / Chiều (Phiên Âu) / Tối (Phiên Mỹ) / Đêm (Futures)
+    # để 5 bài trong cùng 1 ngày luôn phân tích các cặp coin mới mẻ, không trùng lặp)
     top10_pool = [t for t in candidates if t["token"] in TOP_10_MAJOR_TOKENS]
     top10_pool.sort(
         key=lambda x: (abs(x["pct_change"]) * (1.5 if x["pct_change"] > 0 else 1.2), x["quote_volume"]),
@@ -375,25 +376,25 @@ def fetch_market_portfolio() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
     )
     vn_hour = datetime.now(VN_TZ).hour
     if 5 <= vn_hour < 11:
-        session_slot = 0  # Phiên sáng: Top 1 Coin Top 10
-    elif 11 <= vn_hour < 17:
-        session_slot = 1  # Phiên trưa: Top 2 Coin Top 10
+        session_slot = 0  # 08:00 Sáng: Top 1 Coin Top 10
+    elif 11 <= vn_hour < 15:
+        session_slot = 1  # 12:00 Trưa: Top 2 Coin Top 10
+    elif 15 <= vn_hour < 19:
+        session_slot = 2  # 16:00 Chiều (Phiên Âu): Top 3 Coin Top 10
+    elif 19 <= vn_hour < 22:
+        session_slot = 3  # 20:00 Tối (Mở Phiên Mỹ): Top 1 hoặc Top 4 Coin Top 10
     else:
-        session_slot = 2  # Phiên tối: Top 3 Coin Top 10 (hoặc Top 1 nếu biến động vượt trội > 5%)
+        session_slot = 4  # 23:00 Đêm (Futures Phiên Mỹ): Top 5 hoặc Top 2 Coin Top 10
 
-    if session_slot == 2 and top10_pool and abs(top10_pool[0]["pct_change"]) >= 5.0:
-        chosen_top10 = top10_pool[0]
-    else:
-        chosen_top10 = top10_pool[min(session_slot, len(top10_pool) - 1)]
-
+    chosen_top10 = top10_pool[session_slot % len(top10_pool)]
     top10_mode = "momentum" if chosen_top10["pct_change"] >= -1.5 else "rebound"
     top10_plan = build_trading_plan(chosen_top10, top10_mode)
 
     # 3. Chọn Mã 2 là Altcoin sóng mạnh (xoay vòng giữa Kèo Thuận Xu Hướng +5%..+12%
-    # và Kèo Bắt Nhịp Hồi -5%..-10% theo từng phiên để kênh đa dạng kèo mỗi ngày)
+    # và Kèo Bắt Nhịp Hồi -5%..-10% theo từng phiên để kênh đa dạng kèo suốt 5 khung giờ)
     volume_tiers = [MIN_QUOTE_VOLUME_USDT, 10_000_000.0, 3_000_000.0, 1_500_000.0]
     chosen_alt: Dict[str, Any] | None = None
-    prefer_rebound_alt = (session_slot == 1)  # Phiên trưa ưu tiên săn kèo Rebound bắt nhịp hồi
+    prefer_rebound_alt = session_slot in (1, 3)  # Phiên 12:00 & 20:00 ưu tiên săn kèo Rebound bắt đáy
 
     if not prefer_rebound_alt:
         for min_vol in volume_tiers:
@@ -407,7 +408,7 @@ def fetch_market_portfolio() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
             ]
             if pool:
                 pool.sort(key=lambda x: (x["quote_volume"], x["pct_change"]), reverse=True)
-                pick_idx = min(1 if session_slot == 2 and len(pool) > 1 else 0, len(pool) - 1)
+                pick_idx = (session_slot // 2) % len(pool)
                 chosen_alt = pool[pick_idx]
                 alt_mode = "momentum"
                 break
@@ -458,17 +459,17 @@ def generate_square_post(
     t2_pct = f"{alt['pct_change']:+.2f}%"
 
     if 5 <= vn_hour < 11:
-        headline = f"🌅 BẢN TIN MỞ PHIÊN & PLAN 24H: BTC – {t1} – {t2}"
+        headline = f"🌅 BẢN TIN MỞ NẾN NGÀY & PLAN 24H: BTC – {t1} – {t2}"
         intro = (
-            f"🧭 La bàn $BTC đang giao dịch tại ${btc['price_str']} ({btc_pct}), "
+            f"🧭 Sau đóng nến 1D, la bàn $BTC giao dịch tại ${btc['price_str']} ({btc_pct}), "
             f"RSI 4H ở mức {btc['rsi14_4h']:.1f} quanh EMA20 (${btc['ema20_str']}). "
             f"Dòng tiền phiên sáng tập trung rõ nét vào nhóm Coin Top và Altcoin dẫn sóng:"
         )
         cta_question = (
             f"💬 Góc nhìn của anh em phiên sáng nay thế nào: ưu tiên giữ nhịp cùng {t1} hay đánh biên độ ngắn với {t2}?"
         )
-    elif 11 <= vn_hour < 17:
-        headline = f"🎯 PLAN LƯỚT SÓNG GIỮA NGÀY: {t1} & {t2} (THEO NHỊP BTC)"
+    elif 11 <= vn_hour < 15:
+        headline = f"🎯 RADAR LƯỚT SÓNG GIỮA NGÀY: {t1} & {t2} (THEO NHỊP BTC)"
         intro = (
             f"🧭 Nhịp đập thị trường: $BTC giữ mốc ${btc['price_str']} ({btc_pct} | "
             f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}), tạo biên độ đẹp cho 2 kèo tâm điểm:"
@@ -476,14 +477,32 @@ def generate_square_post(
         cta_question = (
             f"💬 Anh em đánh giá sao về cấu trúc 4H hiện tại của {t1} và {t2}? Cùng chia sẻ kế hoạch giao dịch bên dưới nhé."
         )
-    else:
+    elif 15 <= vn_hour < 19:
+        headline = f"🌍 TÂM ĐIỂM MỞ CỬA PHIÊN ÂU: {t1} & {t2}"
+        intro = (
+            f"🧭 Bước vào phiên Âu, $BTC vận động quanh ${btc['price_str']} ({btc_pct} | "
+            f"EMA20 4H: ${btc['ema20_str']}). Thanh khoản đang gia tăng mạnh ở 2 thiết lập kỹ thuật sau:"
+        )
+        cta_question = (
+            f"💬 Phiên Âu chiều nay anh em ưu tiên canh nhịp retest của {t1} hay đón sóng biến động ở {t2}?"
+        )
+    elif 19 <= vn_hour < 22:
         headline = f"⚡ CHIẾN LƯỢC ĐÓN SÓNG PHIÊN MỸ: {t1} & {t2}"
         intro = (
-            f"🧭 Trước giờ biến động mạnh phiên tối, $BTC đang neo tại ${btc['price_str']} ({btc_pct} | "
+            f"🧭 Trước giờ biến động mạnh phiên Mỹ, $BTC đang neo tại ${btc['price_str']} ({btc_pct} | "
             f"RSI 4H: {btc['rsi14_4h']:.1f}). Anh em lưu ý kế hoạch giao dịch 2 mã thanh khoản cao nhất:"
         )
         cta_question = (
             f"💬 Phiên Mỹ tối nay anh em nghiêng về kịch bản {t1} tiếp diễn xu hướng hay {t2} kiểm định lại vùng hỗ trợ?"
+        )
+    else:
+        headline = f"🌙 TIÊU ĐIỂM FUTURES ĐÊM NAY: {t1} & {t2}"
+        intro = (
+            f"🧭 Cao điểm thanh khoản phiên Mỹ, $BTC biến động quanh ${btc['price_str']} ({btc_pct} | "
+            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}). Cập nhật nhanh 2 vùng giá quan trọng cho anh em giữ lệnh đêm:"
+        )
+        cta_question = (
+            f"💬 Đêm nay anh em đang giữ vị thế với {t1} hay đặt sẵn Limit chờ {t2}?"
         )
 
     t1_title_type = "Kèo Tâm Điểm Coin Top" if top10["plan_type"] == "momentum" else "Kèo Canh Gom Coin Top"
