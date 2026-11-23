@@ -505,7 +505,7 @@ def generate_square_post(
             f"💬 Ca đêm nay anh em đang giữ vị thế với {t1} hay đặt sẵn Limit chờ {t2}?"
         )
 
-    t1_title_type = "Món Chính – Coin Top" if top10["plan_type"] == "momentum" else "Món Chính – Canh Gom Coin Top"
+    t1_title_type = "Món Chính – Thuận Xu Hướng" if top10["plan_type"] == "momentum" else "Món Chính – Canh Nhịp Hồi"
     t2_title_type = (
         "Món Lướt Sóng – Thuận Xu Hướng"
         if alt["plan_type"] == "momentum"
