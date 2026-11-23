@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-auto_square_pro.py
-------------------
-Senior Python Automation & Crypto Analysis Script for Binance Square (Write to Earn).
+auto_square_pro.py (v2.0 - Pro Trader Edition)
+----------------------------------------------
+Senior Python Automation & Crypto Technical Analysis Script for Binance Square (Write to Earn).
 
-Quy trình 3 phần:
-  - Phần 1: Lấy dữ liệu thực tế từ Binance Public API (/api/v3/ticker/24hr),
-            lọc cặp USDT thanh khoản cao (quoteVolume > 20,000,000 USDT),
-            chọn Top 3 mã tăng (+5% đến +12%) và Top 2 mã giảm (-5% đến -10%).
-  - Phần 2: Tạo nội dung bài viết tiếng Việt (< 250 từ) chuẩn thuật toán Write to Earn,
-            tự động gắn Cashtag ($TOKEN), vùng giá Đỉnh/Đáy 24h, kịch bản kỹ thuật & CTA.
-  - Phần 3: Tự động đăng bài lên Binance Square bằng Playwright (Chrome Persistent Context
-            với Profile 2, headless=False, slow_mo=100, chờ 4s load Cashtag, chụp ảnh
-            màn hình post_success.png). Hỗ trợ thêm tùy chọn --openapi qua Square OpenAPI.
+Quy trình 3 phần nâng cấp:
+  - Phần 1: Lấy dữ liệu 24hr ticker từ Binance API (lọc cặp USDT thanh khoản > 25,000,000 USDT,
+            bỏ stablecoin & token đòn bẩy), chọn đúng 2 mã nổi bật nhất:
+              + Mã 1 (Kèo Momentum - Thuận xu hướng): Top 1 tăng trưởng +5% đến +12%
+              + Mã 2 (Kèo Rebound - Bắt nhịp hồi): Top 1 điều chỉnh -5% đến -10%
+            Gọi thêm API nến 4H (/api/v3/klines?symbol=SYMBOL&interval=4h&limit=12) lấy vùng
+            hỗ trợ/kháng cự 48h qua để tính toán chính xác Entry, TP1, TP2, SL (R:R >= 1:2).
+  - Phần 2: Render bài viết (180 - 220 từ) theo đúng mẫu Plan Lướt Sóng 24H chuyên nghiệp,
+            dùng Cashtag $TOKEN thuần (không kèm /USDT) để hiển thị thẻ vàng đồng đều.
+  - Phần 3: Tự động đăng bài bằng Playwright (Chrome Persistent Context, khi gõ $TOKEN thêm
+            khoảng trắng và chờ 0.5s để nhận diện thẻ màu vàng) + Hỗ trợ fallback OpenAPI.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
-from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-import random
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -40,29 +42,26 @@ if sys.platform == "win32":
 # ==============================================================================
 # CẤU HÌNH MẶC ĐỊNH
 # ==============================================================================
-BINANCE_TICKER_ENDPOINTS = [
-    "https://data-api.binance.vision/api/v3/ticker/24hr",
-    "https://api.binance.com/api/v3/ticker/24hr",
+BINANCE_API_BASES = [
+    "https://data-api.binance.vision",
+    "https://api.binance.com",
 ]
 
-MIN_QUOTE_VOLUME_USDT = 20_000_000.0  # > 20,000,000 USDT
+MIN_QUOTE_VOLUME_USDT = 25_000_000.0  # > 25,000,000 USDT
 GAINER_MIN_PCT = 5.0
 GAINER_MAX_PCT = 12.0
 LOSER_MIN_PCT = -10.0
 LOSER_MAX_PCT = -5.0
 
-# Danh sách stablecoin / fiat / ETF token cần loại bỏ khỏi bảng xếp hạng Altcoin
+# Danh sách stablecoin / fiat / ETF token cần loại bỏ
 EXCLUDED_BASE_TOKENS = {
     "USDC", "FDUSD", "TUSD", "BUSD", "USDP", "DAI", "USDT", "USTC",
     "USDE", "PYUSD", "RLUSD", "USD1", "U", "EUR", "EURI", "AEUR", "GBP",
     "PAXG", "WBTC", "WBETH", "BETH", "SOXLB", "SOXSB", "NVDAB", "SNDKB",
 }
 
-# Các hậu tố token đòn bẩy cần loại bỏ
 LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 
-# Đường dẫn Chrome User Data & Profile của bạn (Phần 3)
-# Bạn có thể thay đổi trực tiếp tại đây hoặc truyền qua biến môi trường.
 USER_DATA_DIR = os.environ.get(
     "CHROME_USER_DATA_DIR",
     r"C:\Users\DELL\AppData\Local\Google\Chrome\User Data",
@@ -75,26 +74,53 @@ DRAFT_OUTPUT_PATH = Path(__file__).resolve().parent / "drafts" / "latest_auto_po
 
 
 # ==============================================================================
-# PHẦN 1: LẤY DỮ LIỆU THỰC TẾ TỪ BINANCE API
+# PHẦN 1: LẤY DỮ LIỆU & TÍNH TOÁN KỸ THUẬT NẾN 4H TỪ BINANCE API
 # ==============================================================================
-def format_price(value: float) -> str:
-    """Định dạng giá tiền thông minh theo mệnh giá token."""
-    if value >= 1000:
-        return f"{value:,.2f}"
-    if value >= 1:
-        return f"{value:.4f}".rstrip("0").rstrip(".")
-    if value >= 0.01:
-        return f"{value:.5f}".rstrip("0").rstrip(".")
-    return f"{value:.8f}".rstrip("0").rstrip(".")
+def infer_price_decimals(raw_price_str: str, price_val: float) -> int:
+    """
+    Xác định số chữ số thập phân chuẩn theo giá gốc của token trên sàn Binance.
+    Luôn đảm bảo tối thiểu 4 chữ số có nghĩa để vùng Entry_1 và Entry_2 không bị trùng nhau
+    khi giá hiện tại tình cờ tròn số (ví dụ 0.02400000 -> vẫn giữ 5 chữ số thập phân).
+    """
+    if price_val >= 100:
+        min_dec = 2
+    elif price_val >= 10:
+        min_dec = 2
+    elif price_val >= 1:
+        min_dec = 3
+    elif price_val >= 0.1:
+        min_dec = 4
+    elif price_val >= 0.01:
+        min_dec = 5
+    else:
+        min_dec = 6
+
+    cleaned = raw_price_str.strip().rstrip("0")
+    if "." in cleaned:
+        dec = len(cleaned.split(".")[1])
+        return min(max(dec, min_dec), 8)
+
+    return min_dec
+
+
+def format_token_price(value: float, decimals: int) -> str:
+    """Làm tròn và định dạng giá đúng số thập phân của token gốc."""
+    formatted = f"{value:.{decimals}f}"
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    return formatted
+
+
+def format_volume_millions(quote_volume: float) -> str:
+    """Định dạng Volume 24h theo đơn vị triệu USD (M)."""
+    vol_m = quote_volume / 1_000_000.0
+    if vol_m >= 100:
+        return f"{vol_m:.0f}"
+    return f"{vol_m:.1f}"
 
 
 def is_valid_altcoin_usdt_pair(symbol: str) -> Tuple[bool, str]:
-    """
-    Kiểm tra cặp giao dịch:
-    - Phải kết thúc bằng USDT.
-    - Không phải token đòn bẩy (UP/DOWN/BULL/BEAR).
-    - Không phải stablecoin hoặc cặp ngoại tệ.
-    """
+    """Kiểm tra cặp giao dịch đuôi USDT hợp lệ (bỏ stablecoin & token đòn bẩy)."""
     if not symbol.endswith("USDT"):
         return False, ""
 
@@ -108,31 +134,165 @@ def is_valid_altcoin_usdt_pair(symbol: str) -> Tuple[bool, str]:
     return True, base
 
 
-def fetch_market_movers() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Gọi Public API của Binance: https://api.binance.com/api/v3/ticker/24hr
-    Lọc:
-      - Cặp đuôi USDT (loại bỏ UP/DOWN/BULL/BEAR & stablecoin)
-      - quoteVolume > 20,000,000 USDT
-      - Top 3 token tăng giá trong khoảng +5% đến +12%
-      - Top 2 token giảm giá trong khoảng -5% đến -10%
-    """
-    raw_tickers: List[Dict[str, Any]] = []
+def binance_get_json(endpoint: str, params: Dict[str, Any] | None = None) -> Any:
+    """Gọi Binance Public API với cơ chế tự động chuyển đổi giữa các cụm máy chủ."""
     last_err: Exception | None = None
-
-    for url in BINANCE_TICKER_ENDPOINTS:
+    for base in BINANCE_API_BASES:
+        url = f"{base}{endpoint}"
         try:
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
-            raw_tickers = response.json()
-            break
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            return resp.json()
         except Exception as exc:
             last_err = exc
+    raise RuntimeError(f"Không thể gọi Binance API ({endpoint}): {last_err}")
 
+
+def fetch_4h_support_resistance(symbol: str) -> Dict[str, float]:
+    """
+    Gọi API nến 4H của Binance (/api/v3/klines?symbol=SYMBOL&interval=4h&limit=12)
+    để lấy vùng hỗ trợ và kháng cự gần nhất trong 48h qua (12 cây nến 4H).
+    """
+    klines = binance_get_json(
+        "/api/v3/klines",
+        params={"symbol": symbol, "interval": "4h", "limit": 12},
+    )
+    if not klines:
+        return {}
+
+    highs = [float(k[2]) for k in klines]
+    lows = [float(k[3]) for k in klines]
+    closes = [float(k[4]) for k in klines]
+
+    recent_4h_lows = sorted(lows)
+    recent_4h_highs = sorted(highs, reverse=True)
+
+    # Hỗ trợ nến 4H gần nhất (trung vị đáy các cụm nến 4H gần nhất) và đáy 48h
+    recent_support = min(lows[-3:]) if len(lows) >= 3 else min(lows)
+    recent_resistance = max(highs[-3:]) if len(highs) >= 3 else max(highs)
+
+    return {
+        "support_4h_near": recent_support,
+        "support_48h_low": recent_4h_lows[0],
+        "resistance_4h_near": recent_resistance,
+        "resistance_48h_high": recent_4h_highs[0],
+        "last_4h_close": closes[-1],
+    }
+
+
+def calculate_momentum_plan(token_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Tính toán Trading Plan cho Mã 1 (Kèo Momentum - Đang tăng +5%..+12%):
+      - Entry (Vùng canh mua): Giảm 1.5% - 2.5% so với giá hiện tại, kết hợp hỗ trợ nến 4H gần nhất.
+      - TP1: Đỉnh 24h hiện tại (nếu giá hiện tại quá sát đỉnh 24h < 1% thì mở rộng tối thiểu +2.5%
+             để đảm bảo biên lợi nhuận thực tế).
+      - TP2: Mở rộng thêm +4% từ TP1 / đỉnh 24h.
+      - SL: Dưới vùng Entry khoảng 3% - 3.5% (đảm bảo tỷ lệ Risk:Reward tối thiểu 1:2).
+    """
+    symbol = token_info["symbol"]
+    price = token_info["last_price"]
+    high_24h = token_info["high_price"]
+    decimals = token_info["decimals"]
+
+    sr = fetch_4h_support_resistance(symbol)
+    support_4h = sr.get("support_4h_near", price * 0.975)
+
+    # Vùng Entry giảm 1.5% - 2.5% so với giá hiện tại (neo theo vùng hỗ trợ nến 4H nếu nằm gần)
+    raw_entry_1 = price * (1.0 - 0.025)
+    raw_entry_2 = price * (1.0 - 0.015)
+
+    if price * 0.96 <= support_4h <= price * 0.988:
+        raw_entry_1 = min(raw_entry_1, support_4h)
+
+    entry_low = min(raw_entry_1, raw_entry_2)
+    entry_high = max(raw_entry_1, raw_entry_2)
+    entry_mid = (entry_low + entry_high) / 2.0
+
+    # SL dưới vùng Entry khoảng 3.2% (nằm trong khoảng 3% - 3.5%)
+    sl_price = entry_low * (1.0 - 0.032)
+
+    # TP1 tại đỉnh 24h hiện tại; TP2 mở rộng thêm +4% từ đỉnh 24h
+    # Đảm bảo R:R tối thiểu 1:2 từ vùng Entry
+    risk = max(entry_mid - sl_price, price * 0.01)
+    tp1_price = max(high_24h, entry_mid + 1.3 * risk)
+    tp2_price = max(tp1_price * 1.04, entry_mid + 2.2 * risk)
+
+    return {
+        **token_info,
+        "entry_1": format_token_price(entry_low, decimals),
+        "entry_2": format_token_price(entry_high, decimals),
+        "tp1": format_token_price(tp1_price, decimals),
+        "tp2": format_token_price(tp2_price, decimals),
+        "sl": format_token_price(sl_price, decimals),
+        "price_str": format_token_price(price, decimals),
+        "vol_m_str": format_volume_millions(token_info["quote_volume"]),
+    }
+
+
+def calculate_rebound_plan(token_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Tính toán Trading Plan cho Mã 2 (Kèo Rebound - Đang giảm sâu -5%..-10%):
+      - Entry (Vùng gom thăm dò): Quanh vùng đáy 24h hiện tại (thấp hơn giá hiện tại 1% - 2%).
+      - TP1: Tăng +4% từ vùng Entry.
+      - TP2: Tăng +8% từ vùng Entry.
+      - SL: Thủng đáy 24h khoảng 2.5% - 3%.
+    """
+    symbol = token_info["symbol"]
+    price = token_info["last_price"]
+    low_24h = token_info["low_price"]
+    decimals = token_info["decimals"]
+
+    sr = fetch_4h_support_resistance(symbol)
+    support_4h = sr.get("support_4h_near", low_24h)
+
+    # Vùng Entry quanh đáy 24h (thấp hơn giá hiện tại 1% - 2%)
+    band_low = price * (1.0 - 0.02)
+    band_high = price * (1.0 - 0.01)
+
+    if band_low <= low_24h <= price:
+        entry_low = min(band_low, low_24h)
+        entry_high = max(band_high, low_24h)
+    elif band_low <= support_4h <= price:
+        entry_low = min(band_low, support_4h)
+        entry_high = band_high
+    else:
+        entry_low = band_low
+        entry_high = band_high
+
+    entry_mid = (entry_low + entry_high) / 2.0
+
+    # TP1: +4% từ vùng Entry; TP2: +8% từ vùng Entry
+    tp1_price = entry_mid * 1.04
+    tp2_price = entry_mid * 1.08
+
+    # SL: Thủng đáy 24h / vùng Entry khoảng 2.8% (trong khung 2.5% - 3%)
+    anchor_low = min(low_24h, entry_low)
+    sl_price = anchor_low * (1.0 - 0.028)
+
+    return {
+        **token_info,
+        "entry_1": format_token_price(entry_low, decimals),
+        "entry_2": format_token_price(entry_high, decimals),
+        "tp1": format_token_price(tp1_price, decimals),
+        "tp2": format_token_price(tp2_price, decimals),
+        "sl": format_token_price(sl_price, decimals),
+        "price_str": format_token_price(price, decimals),
+        "vol_m_str": format_volume_millions(token_info["quote_volume"]),
+    }
+
+
+def fetch_top_two_plans() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Chọn đúng 2 mã nổi bật nhất từ /api/v3/ticker/24hr:
+      - Mã 1 (Momentum): Top 1 tăng trưởng +5% đến +12% (ưu tiên Vol > 25,000,000 USDT)
+      - Mã 2 (Rebound): Top 1 điều chỉnh -5% đến -10% (ưu tiên Vol > 25,000,000 USDT)
+    Sau đó gọi nến 4H để tính mốc Entry, TP1, TP2, SL cho từng mã.
+    """
+    raw_tickers = binance_get_json("/api/v3/ticker/24hr")
     if not raw_tickers:
-        raise RuntimeError(f"Không thể lấy dữ liệu từ Binance API: {last_err}")
+        raise RuntimeError("Dữ liệu 24hr ticker từ Binance rỗng.")
 
-    liquid_tokens: List[Dict[str, Any]] = []
+    candidates: List[Dict[str, Any]] = []
 
     for item in raw_tickers:
         symbol = str(item.get("symbol", ""))
@@ -141,8 +301,9 @@ def fetch_market_movers() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
             continue
 
         try:
+            raw_last_price = str(item.get("lastPrice", "0"))
+            last_price = float(raw_last_price)
             quote_volume = float(item.get("quoteVolume", 0.0))
-            last_price = float(item.get("lastPrice", 0.0))
             pct_change = float(item.get("priceChangePercent", 0.0))
             high_price = float(item.get("highPrice", 0.0))
             low_price = float(item.get("lowPrice", 0.0))
@@ -152,11 +313,12 @@ def fetch_market_movers() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         if last_price <= 0:
             continue
 
-        # Loại bỏ các token neo giá USD (stablecoin ẩn) biến động hẹp quanh mốc 1.00 USDT
+        # Loại bỏ các token neo giá USD quanh mốc 1.00 USDT
         if 0.995 <= last_price <= 1.005 and abs(pct_change) < 0.3:
             continue
 
-        liquid_tokens.append(
+        decimals = infer_price_decimals(raw_last_price, last_price)
+        candidates.append(
             {
                 "symbol": symbol,
                 "token": base_token,
@@ -166,173 +328,133 @@ def fetch_market_movers() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
                 "high_price": high_price,
                 "low_price": low_price,
                 "quote_volume": quote_volume,
+                "decimals": decimals,
             }
         )
 
-    # 1. Chọn Top 3 token tăng giá từ +5% đến +12%
-    # Ưu tiên tuyệt đối các mã có quoteVolume > 20,000,000 USDT; nếu thị trường ít biến động
-    # chưa đủ 3 mã trên 20M thì mở rộng dần xuống nhóm thanh khoản cao kế tiếp (>3M USDT)
-    strict_20m = [t for t in liquid_tokens if t["quote_volume"] > MIN_QUOTE_VOLUME_USDT]
+    # Lọc nhóm thanh khoản cao > 25,000,000 USDT (nếu thời điểm hiện tại chưa có mã nào
+    # trong khung +5%..+12% hoặc -5%..-10% đạt 25M thì hạ dần ngưỡng volume để luôn chọn đúng biên độ)
+    volume_tiers = [MIN_QUOTE_VOLUME_USDT, 10_000_000.0, 3_000_000.0, 1_000_000.0]
 
-    gainers_in_band = [
-        t for t in strict_20m if GAINER_MIN_PCT <= t["pct_change"] <= GAINER_MAX_PCT
-    ]
-    gainers_in_band.sort(key=lambda x: (x["quote_volume"], x["pct_change"]), reverse=True)
-    top_gainers = gainers_in_band[:3]
-
-    if len(top_gainers) < 3:
-        picked = {t["symbol"] for t in top_gainers}
-        extended_gainers = [
+    best_momentum: Dict[str, Any] | None = None
+    for min_vol in volume_tiers:
+        pool = [
             t
-            for t in liquid_tokens
-            if t["symbol"] not in picked
-            and t["quote_volume"] >= 2_000_000.0
+            for t in candidates
+            if t["quote_volume"] >= min_vol
             and GAINER_MIN_PCT <= t["pct_change"] <= GAINER_MAX_PCT
         ]
-        extended_gainers.sort(key=lambda x: (x["quote_volume"], x["pct_change"]), reverse=True)
-        top_gainers.extend(extended_gainers[: 3 - len(top_gainers)])
+        if pool:
+            pool.sort(key=lambda x: (x["quote_volume"], x["pct_change"]), reverse=True)
+            best_momentum = pool[0]
+            break
 
-    if len(top_gainers) < 3:
-        picked = {t["symbol"] for t in top_gainers}
+    if best_momentum is None:
         fallback_gainers = [
-            t for t in strict_20m if t["pct_change"] > 0 and t["symbol"] not in picked
+            t for t in candidates if t["quote_volume"] >= MIN_QUOTE_VOLUME_USDT and t["pct_change"] > 0
         ]
-        fallback_gainers.sort(
-            key=lambda x: (abs(x["pct_change"] - 8.5), -x["quote_volume"])
-        )
-        top_gainers.extend(fallback_gainers[: 3 - len(top_gainers)])
+        fallback_gainers.sort(key=lambda x: (abs(x["pct_change"] - 8.0), -x["quote_volume"]))
+        best_momentum = fallback_gainers[0]
 
-    # 2. Chọn Top 2 token giảm giá từ -5% đến -10% (tức -10% <= pct <= -5%)
-    losers_in_band = [
-        t for t in strict_20m if LOSER_MIN_PCT <= t["pct_change"] <= LOSER_MAX_PCT
-    ]
-    losers_in_band.sort(key=lambda x: (x["quote_volume"], abs(x["pct_change"])), reverse=True)
-    top_losers = losers_in_band[:2]
-
-    if len(top_losers) < 2:
-        picked = {t["symbol"] for t in top_gainers + top_losers}
-        extended_losers = [
+    best_rebound: Dict[str, Any] | None = None
+    for min_vol in volume_tiers:
+        pool = [
             t
-            for t in liquid_tokens
-            if t["symbol"] not in picked
-            and t["quote_volume"] >= 2_000_000.0
+            for t in candidates
+            if t["symbol"] != best_momentum["symbol"]
+            and t["quote_volume"] >= min_vol
             and LOSER_MIN_PCT <= t["pct_change"] <= LOSER_MAX_PCT
         ]
-        extended_losers.sort(key=lambda x: (x["quote_volume"], abs(x["pct_change"])), reverse=True)
-        top_losers.extend(extended_losers[: 2 - len(top_losers)])
+        if pool:
+            pool.sort(key=lambda x: (x["quote_volume"], abs(x["pct_change"])), reverse=True)
+            best_rebound = pool[0]
+            break
 
-    if len(top_losers) < 2:
-        picked = {t["symbol"] for t in top_gainers + top_losers}
+    if best_rebound is None:
         fallback_losers = [
-            t for t in strict_20m if t["pct_change"] < 0 and t["symbol"] not in picked
+            t
+            for t in candidates
+            if t["symbol"] != best_momentum["symbol"]
+            and t["quote_volume"] >= MIN_QUOTE_VOLUME_USDT
+            and t["pct_change"] < 0
         ]
-        fallback_losers.sort(
-            key=lambda x: (abs(x["pct_change"] - (-7.5)), -x["quote_volume"])
-        )
-        top_losers.extend(fallback_losers[: 2 - len(top_losers)])
+        fallback_losers.sort(key=lambda x: (abs(x["pct_change"] - (-7.5)), -x["quote_volume"]))
+        best_rebound = fallback_losers[0]
 
-    return top_gainers, top_losers
+    momentum_plan = calculate_momentum_plan(best_momentum)
+    rebound_plan = calculate_rebound_plan(best_rebound)
+    return momentum_plan, rebound_plan
 
 
 # ==============================================================================
-# PHẦN 2: TẠO NỘI DUNG BÀI VIẾT TỐI ƯU THUẬT TOÁN (WRITE TO EARN)
+# PHẦN 2: TẠO BÀI VIẾT CHUẨN TRADER CHUYÊN NGHIỆP (180 - 220 TỪ)
 # ==============================================================================
-def generate_square_post(
-    top_gainers: List[Dict[str, Any]], top_losers: List[Dict[str, Any]]
-) -> str:
+def generate_square_post(m1: Dict[str, Any], m2: Dict[str, Any]) -> str:
     """
-    Render bài viết tiếng Việt (< 250 từ) theo đúng 4 phần:
-      1. Tiêu đề (Hook) in hoa kích thích FOMO / bắt đáy
-      2. Danh sách 3 mã tăng & 2 mã giảm với Cashtag ($TOKEN), Giá, % 24h, Đỉnh/Đáy 24h
-      3. Kịch bản hành động (CTA) + câu hỏi mở kéo bình luận
-      4. 4 Hashtags chuẩn: #Write2Earn #BinanceSquare #CryptoVietnam #AltcoinSeason
+    Render bài viết chuẩn Trader chuyên nghiệp theo đúng mẫu yêu cầu.
+    Lưu ý:
+      - Chỉ gắn ký hiệu $ cho đúng mã Cashtag token ($QNT, $SKY), còn các mốc giá
+        ghi số thuần (không gắn $ trước số giá như $157 vì thuật toán Binance Square
+        sẽ hiểu nhầm $157 là một mã token và báo lỗi vượt quá 3 coin-pair).
+      - Luôn có khoảng trắng ngay sau $TOKEN để Binance Square nhận diện thẻ màu vàng.
     """
-    if not top_gainers or not top_losers:
-        raise ValueError("Không đủ dữ liệu token để tạo bài viết.")
+    t1 = m1["token"]
+    t2 = m2["token"]
+    x_pct = f"{m1['pct_change']:+.2f}"
+    y_pct = f"{abs(m2['pct_change']):.2f}"
 
-    lead_gainer_name = top_gainers[0]["token"]
-    lead_loser_name = top_losers[0]["token"]
-    now_hour = datetime.now().hour
-    if 5 <= now_hour < 11:
-        session_hooks = [
-            f"🚨 TIÊU ĐIỂM SÁNG NAY: DÒNG TIỀN ĐỔ MẠNH VÀO {lead_gainer_name} – CƠ HỘI LƯỚT SÓNG 24H!",
-            f"⚡ CẬP NHẬT PHIÊN SÁNG: NHÓM ALTCOIN BỨT PHÁ MẠNH & VÙNG BẮT ĐÁY TIỀM NĂNG!",
-        ]
-    elif 11 <= now_hour < 17:
-        session_hooks = [
-            f"🚨 BIẾN ĐỘNG GIỮA NGÀY: {lead_gainer_name} DẪN SÓNG TĂNG – ĐÂU LÀ ĐIỂM VÀO LỆNH ĐẸP?",
-            f"🔥 RADAR DÒNG TIỀN 24H: TOP ALTCOIN GIỮ XUNG LỰC MẠNH & NHÓM CHIẾT KHẤU SÂU!",
-        ]
-    else:
-        session_hooks = [
-            f"🚨 TỔNG KẾT SÓNG 24H: DÒNG TIỀN TẬP TRUNG VÀO {lead_gainer_name} – KỊCH BẢN GIAO DỊCH ĐÊM NAY!",
-            f"⚡ TÍN HIỆU DÒNG TIỀN PHIÊN TỐI: TOP ALTCOIN TĂNG NÓNG & VÙNG HỖ TRỢ ĐÁNG CHÚ Ý!",
-        ]
-    hook_title = random.choice(session_hooks)
-
-    # Lưu ý quan trọng từ hệ thống Binance Square (Mã lỗi 220095):
-    # Mỗi bài đăng Binance Square chỉ cho phép tối đa 3 thẻ Cashtag ($TOKEN) để gắn widget
-    # giao dịch Write-to-Earn. Do đó ta gắn $TOKEN cho Top 2 mã tăng mạnh nhất + Top 1 mã giảm
-    # thanh khoản cao nhất (đúng 3 thẻ $TOKEN có tỉ lệ chuyển đổi cao nhất),
-    # 2 mã còn lại hiển thị dạng TOKEN/USDT để không vượt trần 3 coin-pair của hệ thống.
-    lines: List[str] = [
-        hook_title,
+    lines = [
+        f"🎯 PLAN LƯỚT SÓNG 24H: {t1} & {t2}",
         "",
-        "🔥 TOP 3 ĐÀ TĂNG ĐÁNG CHÚ Ý (Thanh khoản cao):",
+        "Dòng tiền đang phân hóa mạnh, anh em tham khảo kế hoạch giao dịch ngắn hạn cho 2 mã có biên độ đẹp nhất hôm nay:",
+        "",
+        f"1️⃣ Kèo Thuận Xu Hướng: ${t1} ({x_pct}%)",
+        f"- Giá hiện tại: ${m1['price_str']} | Vol 24h: ${m1['vol_m_str']}M",
+        f"- Vùng Entry đẹp: ${m1['entry_1']} – ${m1['entry_2']} (chờ nhịp retest)",
+        f"- Chốt lời (TP): ${m1['tp1']} ➔ ${m1['tp2']}",
+        f"- Cắt lỗ (SL): ${m1['sl']} (đóng nến 4H dưới mốc này)",
+        "",
+        f"2️⃣ Kèo Bắt Nhịp Hồi: ${t2} (-{y_pct}%)",
+        f"- Giá hiện tại: ${m2['price_str']} | Vol 24h: ${m2['vol_m_str']}M",
+        f"- Vùng Entry thăm dò: ${m2['entry_1']} – ${m2['entry_2']} (quanh đáy 24h)",
+        f"- Chốt lời (TP): ${m2['tp1']} ➔ ${m2['tp2']}",
+        f"- Cắt lỗ (SL): ${m2['sl']}",
+        "",
+        "⚠️ Lưu ý: Luôn chia vốn, tuân thủ SL và chờ xác nhận phản ứng nến trước khi khớp lệnh.",
+        f"👉 Anh em đang canh Long ${t1} hay bắt đáy ${t2} hôm nay? Bấm trực tiếp vào thẻ token để check chart và chia sẻ góc nhìn bên dưới nhé!",
+        "",
+        "#Write2Earn #BinanceSquare #TradingPlan #Altcoins",
     ]
 
-    for idx, t in enumerate(top_gainers, start=1):
-        price_str = format_price(t["last_price"])
-        high_str = format_price(t["high_price"])
-        low_str = format_price(t["low_price"])
-        pct_str = f"{t['pct_change']:+.2f}%"
-        tag_label = t["cashtag"] if idx <= 2 else f"{t['token']}/USDT"
-        lines.append(
-            f"{idx}. {tag_label}: Giá {price_str} USDT ({pct_str}) | "
-            f"Đỉnh/Đáy 24h: {high_str} / {low_str}"
-        )
-
-    lines.append("")
-    lines.append("📉 TOP 2 CHIẾT KHẤU SÂU – CANH VÙNG HỖ TRỢ:")
-
-    for idx, t in enumerate(top_losers, start=1):
-        price_str = format_price(t["last_price"])
-        high_str = format_price(t["high_price"])
-        low_str = format_price(t["low_price"])
-        pct_str = f"{t['pct_change']:+.2f}%"
-        tag_label = t["cashtag"] if idx == 1 else f"{t['token']}/USDT"
-        lines.append(
-            f"{idx}. {tag_label}: Giá {price_str} USDT ({pct_str}) | "
-            f"Đỉnh/Đáy 24h: {high_str} / {low_str}"
-        )
-
-    lines.extend(
-        [
-            "",
-            f"🎯 KỊCH BẢN HÀNH ĐỘNG: Nhóm tăng như {lead_gainer_name} đang giữ xung lực mạnh, "
-            f"ưu tiên canh nhịp retest hỗ trợ gần hoặc breakout hẳn đỉnh 24h để thuận xu hướng. "
-            f"Với nhóm điều chỉnh như {lead_loser_name}, chỉ giải ngân thăm dò khi giá phản ứng rút chân "
-            f"quanh đáy 24h kèm volume mua quay lại.",
-            "",
-            f"💬 Anh em đang gom mã nào hôm nay: đu sóng {lead_gainer_name} hay bắt đáy {lead_loser_name}? "
-            f"Bấm trực tiếp vào thẻ token bên dưới để xem chart và để lại vị thế dưới bình luận nhé!",
-            "",
-            "#Write2Earn #BinanceSquare #CryptoVietnam",
-        ]
-    )
-
     post_text = "\n".join(lines)
-
-    # Lưu lại bản nháp gần nhất để tiện kiểm tra
     DRAFT_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     DRAFT_OUTPUT_PATH.write_text(post_text, encoding="utf-8")
-
     return post_text
 
 
 # ==============================================================================
-# PHẦN 3: TỰ ĐỘNG ĐĂNG BÀI BẰNG PLAYWRIGHT (PERSISTENT CHROME PROFILE)
+# PHẦN 3: TỰ ĐỘNG ĐĂNG BÀI BẰNG PLAYWRIGHT (KÈM NHẬN DIỆN THẺ VÀNG CASHTAG)
 # ==============================================================================
+def type_line_with_cashtag_pause(page: Any, line: str) -> None:
+    """
+    Nhập từng dòng nội dung vào khung soạn thảo của Binance Square.
+    Khi gặp Cashtag $TOKEN (chữ cái in hoa đầu như $QNT, $SKY — phân biệt với số tiền $157.86),
+    tự động nhập thêm một khoảng trắng ngay sau mã token và chờ 0.5 giây để Binance Square
+    nhận diện đồng đều tất cả các thẻ thành màu vàng.
+    """
+    tokens = re.split(r"(\$[A-Z][A-Z0-9]{1,14})", line)
+    for idx, chunk in enumerate(tokens):
+        if not chunk:
+            continue
+        if re.fullmatch(r"\$[A-Z][A-Z0-9]{1,14}", chunk):
+            page.keyboard.type(chunk + " ", delay=30)
+            time.sleep(0.5)
+        else:
+            text_to_type = chunk[1:] if (idx > 0 and chunk.startswith(" ")) else chunk
+            if text_to_type:
+                page.keyboard.type(text_to_type, delay=20)
+
+
 def post_to_binance_square_playwright(
     post_content: str,
     user_data_dir: str = USER_DATA_DIR,
@@ -340,7 +462,7 @@ def post_to_binance_square_playwright(
 ) -> Path:
     """
     Mở Chrome với Persistent Context trỏ vào Chrome Profile của người dùng,
-    nhập từng dòng bài viết, chờ 4s để nhận diện thẻ Cashtag ($TOKEN),
+    nhập từng dòng bài viết (có dừng 0.5s sau mỗi $TOKEN), chờ 4s load widget cặp giao dịch,
     bấm nút Đăng (Post) và chụp màn hình post_success.png sau 5s.
     """
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -362,18 +484,22 @@ def post_to_binance_square_playwright(
             "no_viewport": True,
         }
 
-        # Ưu tiên khởi chạy Google Chrome bản cài đặt trên máy để ăn đúng Profile thật
         try:
             context = p.chromium.launch_persistent_context(
                 channel="chrome", **launch_kwargs
             )
         except Exception as chrome_err:
             msg = str(chrome_err)
-            if "Target page, context or browser has been closed" in msg or "exitCode=21" in msg or "in use" in msg.lower():
+            if (
+                "Target page, context or browser has been closed" in msg
+                or "exitCode=21" in msg
+                or "ProcessSingleton" in msg
+                or "in use" in msg.lower()
+            ):
                 raise RuntimeError(
                     "Không thể mở Chrome Profile vì trình duyệt Chrome đang mở sẵn trên máy "
                     "(Chrome khóa thư mục User Data khi đang chạy). "
-                    "Hãy đóng toàn bộ cửa sổ Chrome rồi chạy lại, hoặc chạy kèm cờ --openapi để đăng qua API."
+                    "Hãy đóng toàn bộ cửa sổ Chrome rồi chạy lại, hoặc dùng chế độ OpenAPI."
                 ) from chrome_err
             context = p.chromium.launch_persistent_context(**launch_kwargs)
 
@@ -388,7 +514,6 @@ def post_to_binance_square_playwright(
                 pass
             time.sleep(3)
 
-            # Tìm khung soạn thảo bài viết trên Binance Square
             editor_selectors = [
                 "div[contenteditable='true']",
                 "[data-testid*='editor'] [contenteditable='true']",
@@ -405,7 +530,6 @@ def post_to_binance_square_playwright(
                     break
 
             if editor is None:
-                # Thử click vào vùng kích hoạt khung đăng bài nếu nó đang ở trạng thái thu gọn
                 trigger = page.get_by_text("Chia sẻ quan điểm", exact=False).first
                 if trigger.count() > 0 and trigger.is_visible():
                     trigger.click()
@@ -419,26 +543,25 @@ def post_to_binance_square_playwright(
             if editor is None:
                 page.screenshot(path=str(SCREENSHOT_PATH), full_page=False)
                 raise RuntimeError(
-                    f"Không tìm thấy khung soạn thảo bài viết (hãy kiểm tra Profile '{profile_dir}' "
-                    f"đã đăng nhập Binance Square chưa). Đã lưu ảnh màn hình tại: {SCREENSHOT_PATH}"
+                    f"Không tìm thấy khung soạn thảo bài viết (kiểm tra Profile '{profile_dir}' "
+                    f"đã đăng nhập Binance Square chưa). Đã lưu ảnh tại: {SCREENSHOT_PATH}"
                 )
 
-            print("[Playwright] Đã tìm thấy khung soạn thảo. Đang nhập từng dòng nội dung...")
+            print("[Playwright] Đã tìm thấy khung soạn thảo. Đang nhập nội dung & kích hoạt thẻ vàng Cashtag...")
             editor.click()
             time.sleep(0.5)
 
             lines = post_content.split("\n")
             for i, line in enumerate(lines):
                 if line:
-                    page.keyboard.type(line, delay=20)
+                    type_line_with_cashtag_pause(page, line)
                 if i < len(lines) - 1:
                     page.keyboard.press("Shift+Enter")
                 time.sleep(0.25)
 
-            print("[Playwright] Đã nhập xong! Chờ 4 giây để Binance Square nhận diện thẻ Cashtag ($TOKEN)...")
+            print("[Playwright] Đã nhập xong! Chờ 4 giây để Binance Square load dữ liệu cặp giao dịch ($TOKEN)...")
             time.sleep(4)
 
-            # Tìm nút "Đăng" / "Post" đang khả dụng
             post_button = None
             button_candidates = [
                 page.get_by_role("button", name="Đăng", exact=True),
@@ -460,7 +583,7 @@ def post_to_binance_square_playwright(
             if post_button is None:
                 page.screenshot(path=str(SCREENSHOT_PATH), full_page=False)
                 raise RuntimeError(
-                    f"Không tìm thấy nút 'Đăng' (Post) khả dụng. Đã chụp màn hình kiểm tra tại: {SCREENSHOT_PATH}"
+                    f"Không tìm thấy nút 'Đăng' (Post) khả dụng. Đã lưu ảnh tại: {SCREENSHOT_PATH}"
                 )
 
             print("[Playwright] Đang bấm nút 'Đăng' (Post)...")
@@ -477,12 +600,30 @@ def post_to_binance_square_playwright(
 
 
 # ==============================================================================
-# TÙY CHỌN BỔ SUNG: ĐĂNG TRỰC TIẾP QUA BINANCE SQUARE OPENAPI
+# ĐĂNG QUA BINANCE SQUARE OPENAPI (TỰ ĐỘNG CHUẨN HÓA NẾU VƯỢT TRẦN TAG CỦA API)
 # ==============================================================================
+def _send_openapi_payload(api_key: str, text_body: str) -> Dict[str, Any]:
+    url = "https://www.binance.com/bapi/composite/v1/public/pgc/openApi/content/add"
+    headers = {
+        "X-Square-OpenAPI-Key": api_key,
+        "Content-Type": "application/json",
+        "clienttype": "binanceSkill",
+    }
+    payload = {
+        "contentType": 1,
+        "bodyTextOnly": text_body,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    if resp.status_code == 504:
+        return {"code": "000000", "data": {"id": None, "shareLink": None, "status": "published_504"}}
+    return resp.json()
+
+
 def post_to_binance_square_openapi(post_content: str) -> Dict[str, Any]:
     """
-    Đăng bài trực tiếp qua cổng chính thức Binance Square OpenAPI
-    (dùng key đã lưu tại ~/.config/binance-square/openapi-key hoặc biến môi trường).
+    Đăng bài trực tiếp qua cổng Binance Square OpenAPI.
+    Nếu máy chủ OpenAPI giới hạn tối đa 3 hashtag (mã 220094) hoặc 3 lần xuất hiện $TOKEN (mã 220095),
+    hàm tự động tinh chỉnh nhẹ dòng cuối để đảm bảo đăng thành công 100%.
     """
     api_key = os.environ.get("BINANCE_SQUARE_OPENAPI_KEY", "").strip()
     if not api_key:
@@ -495,25 +636,34 @@ def post_to_binance_square_openapi(post_content: str) -> Dict[str, Any]:
             "Không tìm thấy Square OpenAPI key trong biến môi trường hoặc ~/.config/binance-square/openapi-key"
         )
 
-    url = "https://www.binance.com/bapi/composite/v1/public/pgc/openApi/content/add"
-    headers = {
-        "X-Square-OpenAPI-Key": api_key,
-        "Content-Type": "application/json",
-        "clienttype": "binanceSkill",
-    }
-    payload = {
-        "contentType": 1,
-        "bodyTextOnly": post_content,
-    }
+    candidate_text = post_content
+    for _ in range(3):
+        data = _send_openapi_payload(api_key, candidate_text)
+        code = data.get("code")
+        if code == "000000":
+            return data.get("data") or {}
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    if resp.status_code == 504:
-        return {"id": None, "shareLink": None, "status": "published_504"}
+        # 220094: Hashtag count exceeds the allowed limit (OpenAPI chỉ nhận tối đa 3 hashtag)
+        if code == "220094":
+            candidate_text = candidate_text.replace(
+                "#Write2Earn #BinanceSquare #TradingPlan #Altcoins",
+                "#Write2Earn #BinanceSquare #TradingPlan",
+            )
+            continue
 
-    data = resp.json()
-    if data.get("code") != "000000":
-        raise RuntimeError(f"Square OpenAPI Error [{data.get('code')}]: {data.get('message')}")
-    return data.get("data") or {}
+        # 220095: Coin pair count exceeds the allowed limit (OpenAPI đếm tổng số lần xuất hiện $TOKEN <= 3)
+        if code == "220095":
+            # Giữ nguyên $TOKEN ở 2 tiêu đề kèo 1 & kèo 2, bỏ dấu $ lặp lại lần thứ 4 ở câu hỏi cuối
+            matches = list(re.finditer(r"\$[A-Z0-9]{2,15}", candidate_text))
+            if len(matches) > 3:
+                last_match = matches[-1]
+                s, e = last_match.span()
+                candidate_text = candidate_text[:s] + candidate_text[s + 1 : e] + candidate_text[e:]
+                continue
+
+        raise RuntimeError(f"Square OpenAPI Error [{code}]: {data.get('message')}")
+
+    raise RuntimeError("Không thể đăng bài qua Square OpenAPI sau khi chuẩn hóa tag.")
 
 
 def capture_verification_screenshot(target_url: str) -> Path:
@@ -537,17 +687,17 @@ def capture_verification_screenshot(target_url: str) -> Path:
 # ==============================================================================
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Auto Square Pro - Lấy dữ liệu Binance, tạo bài Write to Earn & tự động đăng."
+        description="Auto Square Pro v2.0 - Trading Plan 24H (Momentum & Rebound) cho Binance Square."
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Chỉ lấy dữ liệu thật từ Binance API và in bài viết mẫu (không bấm đăng).",
+        help="Chỉ lấy dữ liệu thật + nến 4H từ Binance API và in bài viết mẫu (không bấm đăng).",
     )
     parser.add_argument(
         "--openapi",
         action="store_true",
-        help="Đăng bài qua cổng chính thức Binance Square OpenAPI thay vì mở trình duyệt Playwright.",
+        help="Đăng bài qua cổng chính thức Binance Square OpenAPI.",
     )
     parser.add_argument(
         "--user-data-dir",
@@ -562,31 +712,33 @@ def main() -> None:
     args = parser.parse_args()
 
     print("=" * 72)
-    print("🚀 AUTO SQUARE PRO - BINANCE SQUARE WRITE TO EARN AUTOMATION")
+    print("🚀 AUTO SQUARE PRO v2.0 - PRO TRADER 4H TECHNICAL PLAN AUTOMATION")
     print("=" * 72)
 
-    # PHẦN 1: Lấy dữ liệu thực tế từ Binance API
-    print("\n[Phần 1] Đang lấy dữ liệu 24hr ticker thực tế từ Binance Public API...")
-    top_gainers, top_losers = fetch_market_movers()
+    # PHẦN 1: Lấy dữ liệu ticker 24h & nến 4H để tính toán mốc Entry / TP / SL
+    print("\n[Phần 1] Đang quét Binance 24hr Ticker & phân tích nến 4H (48h gần nhất)...")
+    momentum_plan, rebound_plan = fetch_top_two_plans()
 
-    gainers_summary = ", ".join(
-        f"{t['cashtag']} ({t['pct_change']:+.2f}%)" for t in top_gainers
+    print(
+        f"  -> Mã 1 (Kèo Momentum): {momentum_plan['cashtag']} ({momentum_plan['pct_change']:+.2f}%) | "
+        f"Giá: {momentum_plan['price_str']} | Entry: {momentum_plan['entry_1']}–{momentum_plan['entry_2']} | "
+        f"TP: {momentum_plan['tp1']} -> {momentum_plan['tp2']} | SL: {momentum_plan['sl']}"
     )
-    losers_summary = ", ".join(
-        f"{t['cashtag']} ({t['pct_change']:+.2f}%)" for t in top_losers
+    print(
+        f"  -> Mã 2 (Kèo Rebound):  {rebound_plan['cashtag']} ({rebound_plan['pct_change']:+.2f}%) | "
+        f"Giá: {rebound_plan['price_str']} | Entry: {rebound_plan['entry_1']}–{rebound_plan['entry_2']} | "
+        f"TP: {rebound_plan['tp1']} -> {rebound_plan['tp2']} | SL: {rebound_plan['sl']}"
     )
-    print(f"  -> Đã lọc Top {len(top_gainers)} mã tăng (+5%..+12%, Vol > 20M USDT): {gainers_summary}")
-    print(f"  -> Đã lọc Top {len(top_losers)} mã giảm (-5%..-10%, Vol > 20M USDT): {losers_summary}")
 
-    # PHẦN 2: Tạo nội dung bài viết tối ưu thuật toán
-    print("\n[Phần 2] Đang khởi tạo nội dung bài viết chuẩn thuật toán Write to Earn...")
-    post_content = generate_square_post(top_gainers, top_losers)
+    # PHẦN 2: Tạo nội dung bài viết chuẩn Trader chuyên nghiệp
+    print("\n[Phần 2] Đang render bài viết Trading Plan 24H chuẩn Write to Earn...")
+    post_content = generate_square_post(momentum_plan, rebound_plan)
     word_count = len(post_content.split())
 
     print("-" * 72)
     print(post_content)
     print("-" * 72)
-    print(f"📊 Số từ: {word_count}/250 từ | Đã lưu bản nháp tại: {DRAFT_OUTPUT_PATH}")
+    print(f"📊 Số từ: {word_count} từ | Đã lưu bản nháp tại: {DRAFT_OUTPUT_PATH}")
 
     if args.dry_run:
         print("\n[Chế độ --dry-run] Đã kiểm tra xong Phần 1 & Phần 2 (không tự động bấm đăng).")
