@@ -59,7 +59,7 @@ jobs:
             DIFF=$((NOW_EPOCH - LAST_EPOCH))
             echo "Seconds since last post: ${DIFF}s"
             if [ "$DIFF" -lt 3600 ]; then
-              echo "Already posted within the last 60 minutes (${DIFF}s ago). Skipping duplicatebackup trigger."
+              echo "Already posted within the last 60 minutes (${DIFF}s ago). Skipping duplicate backup trigger."
               echo "should_run=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -93,5 +93,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add last_run.txt last_run_epoch.txt
-          git commit -m "chore: update last_run heartbeat [skip ci]" || true
+          git commit -m "chore: update last_run heartbeat" || true
           git push || true
