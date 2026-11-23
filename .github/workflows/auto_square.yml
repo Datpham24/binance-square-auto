@@ -2,14 +2,34 @@ name: Binance Square Auto Post (5x Daily Golden Hours)
 
 on:
   schedule:
-    # 5 Khung Giờ Vàng Việt Nam (UTC+7):
-    # - 01:00 UTC = 08:00 sáng VN (Sau đóng nến Ngày 1D - Mở phiên Á)
-    # - 05:00 UTC = 12:00 trưa VN (Cao điểm nghỉ trưa)
-    # - 09:00 UTC = 16:00 chiều VN (Mở cửa Phiên Âu - London Session)
-    # - 13:00 UTC = 20:00 tối VN (Trước giờ mở cửa Phiên Mỹ - New York Session)
-    # - 16:00 UTC = 23:00 đêm VN (Cao điểm sóng Futures Phiên Mỹ)
-    - cron: "0 1,5,9,13,16 * * *"
+    # Đặt 3 mốc kích hoạt lệch phút cao điểm (:00) cho mỗi khung giờ vàng Việt Nam (UTC+7)
+    # kèm khóa chống trùng 60 phút (Idempotency Lock) để đảm bảo 100% lên bài đúng khung giờ:
+    # 1. Khung 08:00 sáng VN (00:53, 01:04, 01:14 UTC)
+    - cron: "53 0 * * *"
+    - cron: "4 1 * * *"
+    - cron: "14 1 * * *"
+    # 2. Khung 12:00 trưa VN (04:53, 05:04, 05:14 UTC)
+    - cron: "53 4 * * *"
+    - cron: "4 5 * * *"
+    - cron: "14 5 * * *"
+    # 3. Khung 16:00 chiều VN (08:53, 09:04, 09:14 UTC)
+    - cron: "53 8 * * *"
+    - cron: "4 9 * * *"
+    - cron: "14 9 * * *"
+    # 4. Khung 20:00 tối VN (12:53, 13:04, 13:14 UTC)
+    - cron: "53 12 * * *"
+    - cron: "4 13 * * *"
+    - cron: "14 13 * * *"
+    # 5. Khung 23:00 đêm VN (15:53, 16:04, 16:14 UTC)
+    - cron: "53 15 * * *"
+    - cron: "4 16 * * *"
+    - cron: "14 16 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Bỏ qua khóa 60 phút và đăng bài ngay lập tức (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -23,27 +43,55 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Idempotency Lock (Chống đăng trùng trong cùng phiên 60 phút)
+        id: lock_check
+        env:
+          FORCE_RUN: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          if [ "$FORCE_RUN" = "true" ]; then
+            echo "Force run enabled -> proceeding to post."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ -f last_run_epoch.txt ]; then
+            LAST_EPOCH=$(cat last_run_epoch.txt | tr -d '[:space:]')
+            NOW_EPOCH=$(date +%s)
+            DIFF=$((NOW_EPOCH - LAST_EPOCH))
+            echo "Seconds since last post: ${DIFF}s"
+            if [ "$DIFF" -lt 3600 ]; then
+              echo "Already posted within the last 60 minutes (${DIFF}s ago). Skipping duplicatebackup trigger."
+              echo "should_run=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          echo "should_run=true" >> $GITHUB_OUTPUT
+
       - name: Set up Python 3.12
+        if: steps.lock_check.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        if: steps.lock_check.outputs.should_run == 'true'
         run: pip install --upgrade pip requests
 
       - name: Run Auto Square Pro via Binance Square OpenAPI
+        if: steps.lock_check.outputs.should_run == 'true'
         env:
           TZ: Asia/Ho_Chi_Minh
           BINANCE_SQUARE_OPENAPI_KEY: ${{ secrets.BINANCE_SQUARE_OPENAPI_KEY }}
         run: python auto_square_pro.py --openapi
 
-      - name: Keep-Alive Heartbeat (Ngăn GitHub tự tắt lịch sau 60 ngày)
+      - name: Record Lock Timestamp & Keep-Alive Heartbeat
+        if: steps.lock_check.outputs.should_run == 'true'
         env:
           TZ: Asia/Ho_Chi_Minh
         run: |
+          date +%s > last_run_epoch.txt
           date "+Last successful post: %Y-%m-%d %H:%M:%S %Z" > last_run.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add last_run.txt
+          git add last_run.txt last_run_epoch.txt
           git commit -m "chore: update last_run heartbeat [skip ci]" || true
           git push || true
