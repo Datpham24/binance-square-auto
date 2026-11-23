@@ -568,6 +568,8 @@ def generate_square_post(
         f"- Mục tiêu chốt lời (TP): ${alt['tp1']} ➔ ${alt['tp2']} | Cắt lỗ (SL): ${alt['sl']}",
         "",
         closing,
+        "Biến động ngắn hạn còn gắt, anh em hãy ưu tiên quản trị vốn và hạn chế đòn bẩy cao!",
+        "Đây không phải lời khuyên tài chính.",
         "",
         "#Write2Earn #BinanceSquare #TradingPlan",
     ]
