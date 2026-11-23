@@ -1,0 +1,8 @@
+# Không bao giờ đẩy file chứa khóa bảo mật hoặc ảnh tạm lên GitHub
+.env
+*.env
+openapi-key
+post_success.png
+drafts/
+__pycache__/
+*.pyc
