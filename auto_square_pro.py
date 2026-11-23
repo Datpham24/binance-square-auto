@@ -653,8 +653,8 @@ def post_to_binance_square_openapi(post_content: str) -> Dict[str, Any]:
 
         # 220095: Coin pair count exceeds the allowed limit (OpenAPI đếm tổng số lần xuất hiện $TOKEN <= 3)
         if code == "220095":
-            # Giữ nguyên $TOKEN ở 2 tiêu đề kèo 1 & kèo 2, bỏ dấu $ lặp lại lần thứ 4 ở câu hỏi cuối
-            matches = list(re.finditer(r"\$[A-Z0-9]{2,15}", candidate_text))
+            # Giữ nguyên $TOKEN ở 2 tiêu đề kèo 1 & kèo 2, bỏ dấu $ lặp lại ở câu hỏi cuối
+            matches = list(re.finditer(r"\$[A-Z][A-Z0-9]{1,14}", candidate_text))
             if len(matches) > 3:
                 last_match = matches[-1]
                 s, e = last_match.span()
