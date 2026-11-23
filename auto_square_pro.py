@@ -366,37 +366,49 @@ def fetch_market_portfolio() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
         "vol_str": format_volume_millions(btc_raw["quote_volume"]),
     }
 
-    # 2. Chọn Mã 1 từ rổ Coin Top 10 (ưu tiên đồng có biên độ biến động & thanh khoản sôi động nhất)
+    # 2. Chọn Mã 1 từ rổ Coin Top 10 (xoay vòng thông minh giữa Top 1-3 mã sôi động nhất
+    # theo phiên Sáng / Trưa / Tối để 3 bài trong cùng 1 ngày không bị trùng lặp 1 mã duy nhất)
     top10_pool = [t for t in candidates if t["token"] in TOP_10_MAJOR_TOKENS]
-    # Điểm ưu tiên: kết hợp độ lớn biến động (%) và log thanh khoản để mỗi phiên chọn mã Top 10 đáng chú ý nhất
     top10_pool.sort(
         key=lambda x: (abs(x["pct_change"]) * (1.5 if x["pct_change"] > 0 else 1.2), x["quote_volume"]),
         reverse=True,
     )
-    chosen_top10 = top10_pool[0]
+    vn_hour = datetime.now(VN_TZ).hour
+    if 5 <= vn_hour < 11:
+        session_slot = 0  # Phiên sáng: Top 1 Coin Top 10
+    elif 11 <= vn_hour < 17:
+        session_slot = 1  # Phiên trưa: Top 2 Coin Top 10
+    else:
+        session_slot = 2  # Phiên tối: Top 3 Coin Top 10 (hoặc Top 1 nếu biến động vượt trội > 5%)
+
+    if session_slot == 2 and top10_pool and abs(top10_pool[0]["pct_change"]) >= 5.0:
+        chosen_top10 = top10_pool[0]
+    else:
+        chosen_top10 = top10_pool[min(session_slot, len(top10_pool) - 1)]
+
     top10_mode = "momentum" if chosen_top10["pct_change"] >= -1.5 else "rebound"
     top10_plan = build_trading_plan(chosen_top10, top10_mode)
 
-    # 3. Chọn Mã 2 là Altcoin sóng mạnh (ngoài rổ Top 10 hoặc mã có sóng ngược chiều để bài viết có cả Kèo Thuận Xu Hướng & Kèo Bắt Nhịp Hồi)
+    # 3. Chọn Mã 2 là Altcoin sóng mạnh (xoay vòng giữa Kèo Thuận Xu Hướng +5%..+12%
+    # và Kèo Bắt Nhịp Hồi -5%..-10% theo từng phiên để kênh đa dạng kèo mỗi ngày)
     volume_tiers = [MIN_QUOTE_VOLUME_USDT, 10_000_000.0, 3_000_000.0, 1_500_000.0]
     chosen_alt: Dict[str, Any] | None = None
-    alt_mode = "rebound" if top10_mode == "momentum" else "momentum"
+    prefer_rebound_alt = (session_slot == 1)  # Phiên trưa ưu tiên săn kèo Rebound bắt nhịp hồi
 
-    # Nếu Mã 1 (Coin Top 10) đang tăng < +5%, ưu tiên tìm 1 Altcoin đang bứt phá mạnh (+5%..+12%)
-    # hoặc nếu Mã 1 đã tăng mạnh thì tìm 1 Altcoin chiết khấu sâu (-5%..-10%) để bắt nhịp hồi
-    if chosen_top10["pct_change"] < 5.0:
-        # Tìm Altcoin tăng nóng +5%..+12% trước
+    if not prefer_rebound_alt:
         for min_vol in volume_tiers:
             pool = [
                 t
                 for t in candidates
                 if t["symbol"] != chosen_top10["symbol"]
+                and t["token"] not in TOP_10_MAJOR_TOKENS
                 and t["quote_volume"] >= min_vol
                 and GAINER_MIN_PCT <= t["pct_change"] <= GAINER_MAX_PCT
             ]
             if pool:
                 pool.sort(key=lambda x: (x["quote_volume"], x["pct_change"]), reverse=True)
-                chosen_alt = pool[0]
+                pick_idx = min(1 if session_slot == 2 and len(pool) > 1 else 0, len(pool) - 1)
+                chosen_alt = pool[pick_idx]
                 alt_mode = "momentum"
                 break
 
