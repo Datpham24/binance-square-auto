@@ -453,7 +453,7 @@ def build_natural_btc_commentary(btc: Dict[str, Any], vn_hour: int) -> str:
     if pct >= 2.5:
         return (
             f"Điểm qua $BTC một chút: giá đang giữ nhịp tăng khá tốt quanh ${price_str} ({pct:+.2f}%), "
-            f"nến 4H nằm vững trên đường EMA20 (${ema_str}) nên tâm lý thị trường chung đang khá thoải mái để canh kèo."
+            f"nến 4H nằm vững trên đường EMA20 (${ema_str}) nên tâm lý thị trường chung đang khá tích cực để tìm điểm vào lệnh."
         )
     if pct <= -2.5:
         return (
@@ -496,7 +496,7 @@ def build_natural_coin_insight(plan: Dict[str, Any]) -> str:
             )
         return (
             f"Sau nhịp chỉnh vừa rồi thì lực bán đang chững lại quanh vùng đáy 24h (Vol ${vol_str}, RSI 4H quanh {rsi:.0f}). "
-            f"Kèo này phù hợp cho anh em thích rải lệnh thăm dò ăn nhịp hồi ngắn."
+            f"Vùng giá này khá hợp lý cho anh em thích rải lệnh thăm dò ăn nhịp hồi ngắn."
         )
 
 
@@ -505,7 +505,7 @@ def generate_square_post(
 ) -> str:
     """
     Render bài viết chuẩn phong cách Trader đời thường của kênh 'Tiệm Cơm Crypto' (180 - 220 từ):
-      - Giọng văn tự nhiên như người thật đang trò chuyện và đọc chart 4H, không dùng từ sáo rỗng của AI.
+      - Giọng văn tự nhiên như người thật đang trò chuyện và đọc chart 4H, không dùng từ 'kèo' hay văn mẫu AI.
       - Gắn đúng 3 thẻ vàng Cashtag tối đa của Binance Square: $BTC, $[TOP10], $[ALT].
     """
     vn_hour = datetime.now(VN_TZ).hour
@@ -515,7 +515,7 @@ def generate_square_post(
     t2_pct = f"{alt['pct_change']:+.2f}%"
 
     if 5 <= vn_hour < 11:
-        headline = f"🍚 Tiệm Cơm Crypto – Điểm kèo sáng nay: {t1} & {t2}"
+        headline = f"🍚 Tiệm Cơm Crypto – Điểm danh thị trường sáng nay: {t1} & {t2}"
         closing = (
             f"Sáng nay mình ưu tiên kê sẵn lệnh chờ giá về đúng vùng mới khớp, không vội. "
             f"Anh em hôm nay đang ngắm {t1}, {t2} hay có mã nào khác đẹp hơn thì bình luận bên dưới anh em cùng soi chart nhé!"
@@ -523,20 +523,20 @@ def generate_square_post(
     elif 11 <= vn_hour < 15:
         headline = f"🍱 Nghỉ trưa soi chart – Tiệm Cơm Crypto: {t1} & {t2}"
         closing = (
-            f"Thực đơn trưa nay gọn vậy thôi, nhớ đặt SL đàng hoàng trước khi giữ lệnh nhé anh em. "
+            f"Góc nhìn trưa nay gọn vậy thôi, nhớ đặt SL đàng hoàng trước khi giữ lệnh nhé anh em. "
             f"Trưa nay anh em đang cầm hàng hay cầm USDT chờ bắt đáy thế?"
         )
     elif 15 <= vn_hour < 19:
-        headline = f"☕ Chiều nay đánh gì khi vào phiên Âu? Góc nhìn {t1} & {t2}"
+        headline = f"☕ Chiều nay chú ý mã nào khi vào phiên Âu? Góc nhìn {t1} & {t2}"
         closing = (
             f"Vào phiên Âu biên độ thường quét 2 đầu khá nhanh, anh em đi vốn vừa phải và chờ đóng nến 4H xác nhận cho chắc. "
-            f"Anh em thấy kèo {t1} hay {t2} sáng cửa hơn chiều nay?"
+            f"Anh em thấy cấu trúc của {t1} hay {t2} sáng cửa hơn chiều nay?"
         )
     elif 19 <= vn_hour < 22:
-        headline = f"🔥 Trước giờ phiên Mỹ – Tiệm Cơm Crypto lên kèo {t1} & {t2}"
+        headline = f"🔥 Trước giờ phiên Mỹ – Góc nhìn {t1} & {t2} từ Tiệm Cơm Crypto"
         closing = (
             f"Phiên Mỹ tối nay dự kiến biến động mạnh, mình vẫn giữ nguyên kỷ luật: về đúng Entry mới vào, thủng SL là bỏ không gồng. "
-            f"Tối nay anh em nghiêng về kèo {t1} hay {t2}, để lại góc nhìn bên dưới nhé!"
+            f"Tối nay anh em nghiêng về hướng đi của {t1} hay {t2}, để lại góc nhìn bên dưới nhé!"
         )
     else:
         headline = f"🍜 Ca đêm cho anh em thức canh phiên Mỹ: {t1} & {t2}"
@@ -549,8 +549,8 @@ def generate_square_post(
     t1_insight = build_natural_coin_insight(top10)
     t2_insight = build_natural_coin_insight(alt)
 
-    t1_role = "Kèo chủ lực (thuận xu hướng)" if top10["plan_type"] == "momentum" else "Kèo canh gom nhịp chỉnh"
-    t2_role = "Kèo lướt sóng theo đà tăng" if alt["plan_type"] == "momentum" else "Kèo bắt nhịp hồi ngắn hạn"
+    t1_role = "Tâm điểm thuận xu hướng" if top10["plan_type"] == "momentum" else "Canh gom nhịp điều chỉnh"
+    t2_role = "Lướt sóng theo đà tăng" if alt["plan_type"] == "momentum" else "Canh nhịp hồi kỹ thuật"
 
     lines = [
         headline,
