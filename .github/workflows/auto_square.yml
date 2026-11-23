@@ -1,12 +1,14 @@
-name: Binance Square Auto Post (3x Daily)
+name: Binance Square Auto Post (5x Daily Golden Hours)
 
 on:
   schedule:
-    # Giờ Việt Nam (UTC+7):
-    # - 01:00 UTC = 08:00 sáng VN
-    # - 05:00 UTC = 12:00 trưa VN
-    # - 13:00 UTC = 20:00 tối VN
-    - cron: "0 1,5,13 * * *"
+    # 5 Khung Giờ Vàng Việt Nam (UTC+7):
+    # - 01:00 UTC = 08:00 sáng VN (Sau đóng nến Ngày 1D - Mở phiên Á)
+    # - 05:00 UTC = 12:00 trưa VN (Cao điểm nghỉ trưa)
+    # - 09:00 UTC = 16:00 chiều VN (Mở cửa Phiên Âu - London Session)
+    # - 13:00 UTC = 20:00 tối VN (Trước giờ mở cửa Phiên Mỹ - New York Session)
+    # - 16:00 UTC = 23:00 đêm VN (Cao điểm sóng Futures Phiên Mỹ)
+    - cron: "0 1,5,9,13,16 * * *"
   workflow_dispatch: # Cho phép bấm chạy thử bất cứ lúc nào trên giao diện GitHub
 
 jobs:
