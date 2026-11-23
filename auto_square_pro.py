@@ -453,8 +453,7 @@ def generate_square_post(
             f"Dòng tiền phiên sáng tập trung rõ nét vào nhóm Coin Top và Altcoin dẫn sóng:"
         )
         cta_question = (
-            f"👉 Mở phiên sáng nay anh em chọn nắm giữ Coin Top {t1} hay lướt sóng biên độ lớn cùng {t2}? "
-            f"Bấm trực tiếp vào thẻ token bên dưới để check chart 4H và bình luận vị thế nhé!"
+            f"💬 Góc nhìn của anh em phiên sáng nay thế nào: ưu tiên giữ nhịp cùng {t1} hay đánh biên độ ngắn với {t2}?"
         )
     elif 11 <= vn_hour < 17:
         headline = f"🎯 PLAN LƯỚT SÓNG GIỮA NGÀY: {t1} & {t2} (THEO NHỊP BTC)"
@@ -463,8 +462,7 @@ def generate_square_post(
             f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}), tạo biên độ đẹp cho 2 kèo tâm điểm:"
         )
         cta_question = (
-            f"👉 Giữa ngày anh em đang canh vào lệnh {t1} hay đón nhịp {t2}? "
-            f"Bấm ngay vào thẻ token để xem biểu đồ trực tiếp và chia sẻ điểm Entry của bạn bên dưới nhé!"
+            f"💬 Anh em đánh giá sao về cấu trúc 4H hiện tại của {t1} và {t2}? Cùng chia sẻ kế hoạch giao dịch bên dưới nhé."
         )
     else:
         headline = f"⚡ CHIẾN LƯỢC ĐÓN SÓNG PHIÊN MỸ: {t1} & {t2}"
@@ -473,8 +471,7 @@ def generate_square_post(
             f"RSI 4H: {btc['rsi14_4h']:.1f}). Anh em lưu ý kế hoạch giao dịch 2 mã thanh khoản cao nhất:"
         )
         cta_question = (
-            f"👉 Đêm nay phiên Mỹ anh em đứng phe đánh lên {t1} hay canh gom {t2} tại hỗ trợ? "
-            f"Bấm trực tiếp vào thẻ token để check chart và để lại góc nhìn bên dưới nhé!"
+            f"💬 Phiên Mỹ tối nay anh em nghiêng về kịch bản {t1} tiếp diễn xu hướng hay {t2} kiểm định lại vùng hỗ trợ?"
         )
 
     t1_title_type = "Kèo Tâm Điểm Coin Top" if top10["plan_type"] == "momentum" else "Kèo Canh Gom Coin Top"
