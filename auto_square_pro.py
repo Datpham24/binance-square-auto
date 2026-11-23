@@ -459,57 +459,57 @@ def generate_square_post(
     t2_pct = f"{alt['pct_change']:+.2f}%"
 
     if 5 <= vn_hour < 11:
-        headline = f"🌅 BẢN TIN MỞ NẾN NGÀY & PLAN 24H: BTC – {t1} – {t2}"
+        headline = f"🍚 THỰC ĐƠN SÁNG – TIỆM CƠM CRYPTO: BTC – {t1} – {t2}"
         intro = (
-            f"🧭 Sau đóng nến 1D, la bàn $BTC giao dịch tại ${btc['price_str']} ({btc_pct}), "
-            f"RSI 4H ở mức {btc['rsi14_4h']:.1f} quanh EMA20 (${btc['ema20_str']}). "
-            f"Dòng tiền phiên sáng tập trung rõ nét vào nhóm Coin Top và Altcoin dẫn sóng:"
+            f"🧭 Mở cửa ngày mới, la bàn $BTC đang ở mức ${btc['price_str']} ({btc_pct}), "
+            f"RSI 4H đạt {btc['rsi14_4h']:.1f} quanh EMA20 (${btc['ema20_str']}). "
+            f"Tiệm lên sẵn 2 kèo sáng nay cho anh em chọn món:"
         )
         cta_question = (
-            f"💬 Góc nhìn của anh em phiên sáng nay thế nào: ưu tiên giữ nhịp cùng {t1} hay đánh biên độ ngắn với {t2}?"
+            f"💬 Sáng nay anh em ghé Tiệm Cơm Crypto chọn món chính {t1} hay món lướt sóng {t2}? Cùng chia sẻ góc nhìn bên dưới nhé."
         )
     elif 11 <= vn_hour < 15:
-        headline = f"🎯 RADAR LƯỚT SÓNG GIỮA NGÀY: {t1} & {t2} (THEO NHỊP BTC)"
+        headline = f"🍱 CƠM TRƯA TRADE GÌ? PLAN LƯỚT SÓNG {t1} & {t2}"
         intro = (
-            f"🧭 Nhịp đập thị trường: $BTC giữ mốc ${btc['price_str']} ({btc_pct} | "
-            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}), tạo biên độ đẹp cho 2 kèo tâm điểm:"
+            f"🧭 Nhịp đập giữa ngày từ Tiệm Cơm Crypto: $BTC giữ mốc ${btc['price_str']} ({btc_pct} | "
+            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}), mở ra biên độ đẹp cho 2 kèo tâm điểm:"
         )
         cta_question = (
-            f"💬 Anh em đánh giá sao về cấu trúc 4H hiện tại của {t1} và {t2}? Cùng chia sẻ kế hoạch giao dịch bên dưới nhé."
+            f"💬 Bữa trưa hôm nay anh em chấm cấu trúc 4H của {t1} hay {t2} hơn? Để lại kế hoạch giao dịch bên dưới nhé."
         )
     elif 15 <= vn_hour < 19:
-        headline = f"🌍 TÂM ĐIỂM MỞ CỬA PHIÊN ÂU: {t1} & {t2}"
+        headline = f"☕ TIỆM CƠM CRYPTO – ĐÓN SÓNG PHIÊN ÂU: {t1} & {t2}"
         intro = (
             f"🧭 Bước vào phiên Âu, $BTC vận động quanh ${btc['price_str']} ({btc_pct} | "
-            f"EMA20 4H: ${btc['ema20_str']}). Thanh khoản đang gia tăng mạnh ở 2 thiết lập kỹ thuật sau:"
+            f"EMA20 4H: ${btc['ema20_str']}). Thanh khoản đang đổ mạnh vào 2 thiết lập kỹ thuật sau:"
         )
         cta_question = (
-            f"💬 Phiên Âu chiều nay anh em ưu tiên canh nhịp retest của {t1} hay đón sóng biến động ở {t2}?"
+            f"💬 Phiên Âu chiều nay anh em ghé Tiệm chọn canh nhịp retest của {t1} hay đón sóng ở {t2}?"
         )
     elif 19 <= vn_hour < 22:
-        headline = f"⚡ CHIẾN LƯỢC ĐÓN SÓNG PHIÊN MỸ: {t1} & {t2}"
+        headline = f"🔥 THỰC ĐƠN PHIÊN MỸ – TIỆM CƠM CRYPTO: {t1} & {t2}"
         intro = (
-            f"🧭 Trước giờ biến động mạnh phiên Mỹ, $BTC đang neo tại ${btc['price_str']} ({btc_pct} | "
-            f"RSI 4H: {btc['rsi14_4h']:.1f}). Anh em lưu ý kế hoạch giao dịch 2 mã thanh khoản cao nhất:"
+            f"🧭 Trước giờ mở cửa phiên Mỹ, $BTC đang neo tại ${btc['price_str']} ({btc_pct} | "
+            f"RSI 4H: {btc['rsi14_4h']:.1f}). Tiệm Cơm Crypto lên sẵn kịch bản 2 mã thanh khoản cao nhất tối nay:"
         )
         cta_question = (
-            f"💬 Phiên Mỹ tối nay anh em nghiêng về kịch bản {t1} tiếp diễn xu hướng hay {t2} kiểm định lại vùng hỗ trợ?"
+            f"💬 Tối nay phiên Mỹ anh em chọn món chính {t1} thuận xu hướng hay canh vùng hỗ trợ của {t2}?"
         )
     else:
-        headline = f"🌙 TIÊU ĐIỂM FUTURES ĐÊM NAY: {t1} & {t2}"
+        headline = f"🍜 CA ĐÊM FUTURES – TIỆM CƠM CRYPTO: {t1} & {t2}"
         intro = (
-            f"🧭 Cao điểm thanh khoản phiên Mỹ, $BTC biến động quanh ${btc['price_str']} ({btc_pct} | "
-            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}). Cập nhật nhanh 2 vùng giá quan trọng cho anh em giữ lệnh đêm:"
+            f"🧭 Cao điểm thanh khoản đêm phiên Mỹ, $BTC biến động quanh ${btc['price_str']} ({btc_pct} | "
+            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}). Thực đơn khuya cho anh em giữ lệnh:"
         )
         cta_question = (
-            f"💬 Đêm nay anh em đang giữ vị thế với {t1} hay đặt sẵn Limit chờ {t2}?"
+            f"💬 Ca đêm nay anh em đang giữ vị thế với {t1} hay đặt sẵn Limit chờ {t2}?"
         )
 
-    t1_title_type = "Kèo Tâm Điểm Coin Top" if top10["plan_type"] == "momentum" else "Kèo Canh Gom Coin Top"
+    t1_title_type = "Món Chính – Coin Top" if top10["plan_type"] == "momentum" else "Món Chính – Canh Gom Coin Top"
     t2_title_type = (
-        "Kèo Thuận Xu Hướng (Momentum)"
+        "Món Lướt Sóng – Thuận Xu Hướng"
         if alt["plan_type"] == "momentum"
-        else "Kèo Bắt Nhịp Hồi (Rebound)"
+        else "Món Lướt Sóng – Bắt Nhịp Hồi"
     )
 
     lines = [
