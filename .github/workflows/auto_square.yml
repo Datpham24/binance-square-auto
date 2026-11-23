@@ -1,0 +1,33 @@
+name: Binance Square Auto Post (3x Daily)
+
+on:
+  schedule:
+    # Giờ Việt Nam (UTC+7):
+    # - 01:00 UTC = 08:00 sáng VN
+    # - 05:00 UTC = 12:00 trưa VN
+    # - 13:00 UTC = 20:00 tối VN
+    - cron: "0 1,5,13 * * *"
+  workflow_dispatch: # Cho phép bấm chạy thử bất cứ lúc nào trên giao diện GitHub
+
+jobs:
+  auto-post-square:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --upgrade pip requests
+
+      - name: Run Auto Square Pro via Binance Square OpenAPI
+        env:
+          TZ: Asia/Ho_Chi_Minh
+          BINANCE_SQUARE_OPENAPI_KEY: ${{ secrets.BINANCE_SQUARE_OPENAPI_KEY }}
+        run: python auto_square_pro.py --openapi
