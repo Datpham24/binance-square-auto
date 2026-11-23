@@ -442,97 +442,132 @@ def fetch_market_portfolio() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
 # ==============================================================================
 # PHẦN 2: TẠO BÀI VIẾT CHUYÊN NGHIỆP THEO 3 KHUNG GIỜ (SÁNG / TRƯA / TỐI)
 # ==============================================================================
+def build_natural_btc_commentary(btc: Dict[str, Any], vn_hour: int) -> str:
+    """Tạo đoạn nhận xét $BTC tự nhiên như một trader thực chiến đang nhìn chart 4H."""
+    pct = btc["pct_change"]
+    price_str = btc["price_str"]
+    ema_str = btc["ema20_str"]
+    rsi = btc["rsi14_4h"]
+    above_ema = btc["last_price"] >= float(str(btc["ema20_str"]).replace(",", ""))
+
+    if pct >= 2.5:
+        return (
+            f"Điểm qua $BTC một chút: giá đang giữ nhịp tăng khá tốt quanh ${price_str} ({pct:+.2f}%), "
+            f"nến 4H nằm vững trên đường EMA20 (${ema_str}) nên tâm lý thị trường chung đang khá thoải mái để canh kèo."
+        )
+    if pct <= -2.5:
+        return (
+            f"Nhìn qua anh cả $BTC trước khi vào việc: giá vừa có nhịp rũ về ${price_str} ({pct:+.2f}%), "
+            f"RSI 4H lùi xuống {rsi:.0f}. Đoạn này thị trường rung lắc mạnh nên anh em tuyệt đối không vội, chỉ kê lệnh sẵn ở vùng hỗ trợ cứng."
+        )
+    if above_ema:
+        return (
+            f"Cập nhật nhanh $BTC: hiện đang giao dịch quanh ${price_str} ({pct:+.2f}%), "
+            f"cấu trúc 4H vẫn giữ trên mốc EMA20 (${ema_str}) với RSI quanh {rsi:.0f}. Khi BTC đi ngang giữ giá thế này là lúc dòng tiền hay luân chuyển sang kéo lẻ từng mã:"
+        )
+    return (
+        f"Điểm qua $BTC hiện tại: giá đang lình xình tích lũy quanh ${price_str} ({pct:+.2f}%), "
+        f"ngay sát đường EMA20 khung 4H (${ema_str}). Đoạn này không nên FOMO đuổi giá xanh, mình lọc ra 2 mã có vùng vào lệnh rõ ràng nhất để anh em tham khảo:"
+    )
+
+
+def build_natural_coin_insight(plan: Dict[str, Any]) -> str:
+    """Tạo lời nhận xét kỹ thuật đời thường, sát thực tế dựa trên RSI 4H, EMA20 và Volume."""
+    rsi = plan["rsi14_4h"]
+    ema_str = plan["ema20_4h_str"]
+    vol_str = plan["vol_str"]
+    is_momentum = plan["plan_type"] == "momentum"
+
+    if is_momentum:
+        if rsi >= 65:
+            return (
+                f"Lực mua 24h đổ vào khá căng (Vol ${vol_str}), giá giữ hoàn toàn trên EMA20 khung 4H (${ema_str}). "
+                f"Tuy nhiên RSI 4H đã lên {rsi:.0f} nên anh em hạn chế đua lệnh giá hiện tại, kiên nhẫn đợi nhịp chỉnh nhẹ về vùng hỗ trợ dưới rồi mới lên tàu."
+            )
+        return (
+            f"Thanh khoản 24h duy trì tốt (${vol_str}), nến 4H đang bám trên đường EMA20 (${ema_str}) còn RSI mới ở mức {rsi:.0f} — "
+            f"tức dư địa tăng vẫn còn, chưa bị quá mua. Ưu tiên canh nhịp test lại hỗ trợ gần để đi theo xu hướng."
+        )
+    else:
+        if rsi <= 36:
+            return (
+                f"Mã này vừa bị bán rát về sát đáy 24h khiến RSI khung 4H rơi sâu xuống {rsi:.0f} (vùng quá bán). "
+                f"Thường những nhịp ép bán quá đà thế này rất dễ xuất hiện nến 4H rút chân bật hồi kỹ thuật."
+            )
+        return (
+            f"Sau nhịp chỉnh vừa rồi thì lực bán đang chững lại quanh vùng đáy 24h (Vol ${vol_str}, RSI 4H quanh {rsi:.0f}). "
+            f"Kèo này phù hợp cho anh em thích rải lệnh thăm dò ăn nhịp hồi ngắn."
+        )
+
+
 def generate_square_post(
     btc: Dict[str, Any], top10: Dict[str, Any], alt: Dict[str, Any]
 ) -> str:
     """
-    Render bài viết chuẩn Creator chuyên nghiệp (180 - 220 từ):
-      - Đa dạng tiêu đề & lời dẫn theo đúng khung giờ Việt Nam (Sáng / Trưa / Tối).
+    Render bài viết chuẩn phong cách Trader đời thường của kênh 'Tiệm Cơm Crypto' (180 - 220 từ):
+      - Giọng văn tự nhiên như người thật đang trò chuyện và đọc chart 4H, không dùng từ sáo rỗng của AI.
       - Gắn đúng 3 thẻ vàng Cashtag tối đa của Binance Square: $BTC, $[TOP10], $[ALT].
-      - Hiển thị chỉ báo RSI(14) & EMA(20) khung 4H thực tế kèm Entry / TP / SL rõ ràng.
     """
     vn_hour = datetime.now(VN_TZ).hour
     t1 = top10["token"]
     t2 = alt["token"]
-    btc_pct = f"{btc['pct_change']:+.2f}%"
     t1_pct = f"{top10['pct_change']:+.2f}%"
     t2_pct = f"{alt['pct_change']:+.2f}%"
 
     if 5 <= vn_hour < 11:
-        headline = f"🍚 THỰC ĐƠN SÁNG – TIỆM CƠM CRYPTO: BTC – {t1} – {t2}"
-        intro = (
-            f"🧭 Mở cửa ngày mới, la bàn $BTC đang ở mức ${btc['price_str']} ({btc_pct}), "
-            f"RSI 4H đạt {btc['rsi14_4h']:.1f} quanh EMA20 (${btc['ema20_str']}). "
-            f"Tiệm lên sẵn 2 kèo sáng nay cho anh em chọn món:"
-        )
-        cta_question = (
-            f"💬 Sáng nay anh em ghé Tiệm Cơm Crypto chọn món chính {t1} hay món lướt sóng {t2}? Cùng chia sẻ góc nhìn bên dưới nhé."
+        headline = f"🍚 Tiệm Cơm Crypto – Điểm kèo sáng nay: {t1} & {t2}"
+        closing = (
+            f"Sáng nay mình ưu tiên kê sẵn lệnh chờ giá về đúng vùng mới khớp, không vội. "
+            f"Anh em hôm nay đang ngắm {t1}, {t2} hay có mã nào khác đẹp hơn thì bình luận bên dưới anh em cùng soi chart nhé!"
         )
     elif 11 <= vn_hour < 15:
-        headline = f"🍱 CƠM TRƯA TRADE GÌ? PLAN LƯỚT SÓNG {t1} & {t2}"
-        intro = (
-            f"🧭 Nhịp đập giữa ngày từ Tiệm Cơm Crypto: $BTC giữ mốc ${btc['price_str']} ({btc_pct} | "
-            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}), mở ra biên độ đẹp cho 2 kèo tâm điểm:"
-        )
-        cta_question = (
-            f"💬 Bữa trưa hôm nay anh em chấm cấu trúc 4H của {t1} hay {t2} hơn? Để lại kế hoạch giao dịch bên dưới nhé."
+        headline = f"🍱 Nghỉ trưa soi chart – Tiệm Cơm Crypto: {t1} & {t2}"
+        closing = (
+            f"Thực đơn trưa nay gọn vậy thôi, nhớ đặt SL đàng hoàng trước khi giữ lệnh nhé anh em. "
+            f"Trưa nay anh em đang cầm hàng hay cầm USDT chờ bắt đáy thế?"
         )
     elif 15 <= vn_hour < 19:
-        headline = f"☕ TIỆM CƠM CRYPTO – ĐÓN SÓNG PHIÊN ÂU: {t1} & {t2}"
-        intro = (
-            f"🧭 Bước vào phiên Âu, $BTC vận động quanh ${btc['price_str']} ({btc_pct} | "
-            f"EMA20 4H: ${btc['ema20_str']}). Thanh khoản đang đổ mạnh vào 2 thiết lập kỹ thuật sau:"
-        )
-        cta_question = (
-            f"💬 Phiên Âu chiều nay anh em ghé Tiệm chọn canh nhịp retest của {t1} hay đón sóng ở {t2}?"
+        headline = f"☕ Chiều nay đánh gì khi vào phiên Âu? Góc nhìn {t1} & {t2}"
+        closing = (
+            f"Vào phiên Âu biên độ thường quét 2 đầu khá nhanh, anh em đi vốn vừa phải và chờ đóng nến 4H xác nhận cho chắc. "
+            f"Anh em thấy kèo {t1} hay {t2} sáng cửa hơn chiều nay?"
         )
     elif 19 <= vn_hour < 22:
-        headline = f"🔥 THỰC ĐƠN PHIÊN MỸ – TIỆM CƠM CRYPTO: {t1} & {t2}"
-        intro = (
-            f"🧭 Trước giờ mở cửa phiên Mỹ, $BTC đang neo tại ${btc['price_str']} ({btc_pct} | "
-            f"RSI 4H: {btc['rsi14_4h']:.1f}). Tiệm Cơm Crypto lên sẵn kịch bản 2 mã thanh khoản cao nhất tối nay:"
-        )
-        cta_question = (
-            f"💬 Tối nay phiên Mỹ anh em chọn món chính {t1} thuận xu hướng hay canh vùng hỗ trợ của {t2}?"
+        headline = f"🔥 Trước giờ phiên Mỹ – Tiệm Cơm Crypto lên kèo {t1} & {t2}"
+        closing = (
+            f"Phiên Mỹ tối nay dự kiến biến động mạnh, mình vẫn giữ nguyên kỷ luật: về đúng Entry mới vào, thủng SL là bỏ không gồng. "
+            f"Tối nay anh em nghiêng về kèo {t1} hay {t2}, để lại góc nhìn bên dưới nhé!"
         )
     else:
-        headline = f"🍜 CA ĐÊM FUTURES – TIỆM CƠM CRYPTO: {t1} & {t2}"
-        intro = (
-            f"🧭 Cao điểm thanh khoản đêm phiên Mỹ, $BTC biến động quanh ${btc['price_str']} ({btc_pct} | "
-            f"Đỉnh/Đáy 24h: ${btc['high_str']} – ${btc['low_str']}). Thực đơn khuya cho anh em giữ lệnh:"
-        )
-        cta_question = (
-            f"💬 Ca đêm nay anh em đang giữ vị thế với {t1} hay đặt sẵn Limit chờ {t2}?"
+        headline = f"🍜 Ca đêm cho anh em thức canh phiên Mỹ: {t1} & {t2}"
+        closing = (
+            f"Khuya rồi anh em nào còn thức canh lệnh thì nhớ cài sẵn TP/SL đầy đủ rồi nghỉ ngơi cho khỏe. "
+            f"Đêm nay anh em đang giữ vị thế mã nào, comment bên dưới cùng theo dõi nhé!"
         )
 
-    t1_title_type = "Món Chính – Thuận Xu Hướng" if top10["plan_type"] == "momentum" else "Món Chính – Canh Nhịp Hồi"
-    t2_title_type = (
-        "Món Lướt Sóng – Thuận Xu Hướng"
-        if alt["plan_type"] == "momentum"
-        else "Món Lướt Sóng – Bắt Nhịp Hồi"
-    )
+    btc_paragraph = build_natural_btc_commentary(btc, vn_hour)
+    t1_insight = build_natural_coin_insight(top10)
+    t2_insight = build_natural_coin_insight(alt)
+
+    t1_role = "Kèo chủ lực (thuận xu hướng)" if top10["plan_type"] == "momentum" else "Kèo canh gom nhịp chỉnh"
+    t2_role = "Kèo lướt sóng theo đà tăng" if alt["plan_type"] == "momentum" else "Kèo bắt nhịp hồi ngắn hạn"
 
     lines = [
         headline,
         "",
-        intro,
+        btc_paragraph,
         "",
-        f"1️⃣ {t1_title_type}: ${t1} ({t1_pct})",
-        f"- Giá hiện tại: ${top10['price_str']} | Vol 24h: ${top10['vol_str']}",
-        f"- Tín hiệu 4H: {top10['tech_note']}",
-        f"- Vùng Entry đẹp: ${top10['entry_1']} – ${top10['entry_2']} ({top10['entry_note']})",
-        f"- Chốt lời (TP): ${top10['tp1']} ➔ ${top10['tp2']}",
-        f"- Cắt lỗ (SL): ${top10['sl']} (đóng nến 4H dưới mốc này)",
+        f"1️⃣ {t1_role}: ${t1} ({t1_pct} | Giá hiện tại: ${top10['price_str']})",
+        f"- Góc nhìn: {t1_insight}",
+        f"- Vùng canh vào (Entry): ${top10['entry_1']} – ${top10['entry_2']}",
+        f"- Mục tiêu chốt lời (TP): ${top10['tp1']} ➔ ${top10['tp2']} | Cắt lỗ (SL): ${top10['sl']}",
         "",
-        f"2️⃣ {t2_title_type}: ${t2} ({t2_pct})",
-        f"- Giá hiện tại: ${alt['price_str']} | Vol 24h: ${alt['vol_str']}",
-        f"- Tín hiệu 4H: {alt['tech_note']}",
-        f"- Vùng Entry thăm dò: ${alt['entry_1']} – ${alt['entry_2']} ({alt['entry_note']})",
-        f"- Chốt lời (TP): ${alt['tp1']} ➔ ${alt['tp2']}",
-        f"- Cắt lỗ (SL): ${alt['sl']}",
+        f"2️⃣ {t2_role}: ${t2} ({t2_pct} | Giá hiện tại: ${alt['price_str']})",
+        f"- Góc nhìn: {t2_insight}",
+        f"- Vùng canh vào (Entry): ${alt['entry_1']} – ${alt['entry_2']}",
+        f"- Mục tiêu chốt lời (TP): ${alt['tp1']} ➔ ${alt['tp2']} | Cắt lỗ (SL): ${alt['sl']}",
         "",
-        "⚠️ Lưu ý: Luôn chia vốn, tuân thủ SL và chờ xác nhận phản ứng nến 4H trước khi khớp lệnh.",
-        cta_question,
+        closing,
         "",
         "#Write2Earn #BinanceSquare #TradingPlan",
     ]
