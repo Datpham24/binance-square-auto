@@ -2,15 +2,20 @@ name: Binance Square Auto Post (5x Daily Golden Hours)
 
 on:
   schedule:
-    # 5 Khung Giờ Vàng Việt Nam (UTC+7) - đặt lệch phút :00 cao điểm sang phút :07
-    # để tránh nghẽn hàng đợi toàn cầu của GitHub Actions:
-    # - 01:07 UTC = 08:07 sáng VN (Mở phiên sáng)
-    # - 05:07 UTC = 12:07 trưa VN (Nghỉ trưa soi chart)
-    # - 09:07 UTC = 16:07 chiều VN (Mở cửa Phiên Âu)
-    # - 13:07 UTC = 20:07 tối VN (Trước giờ mở cửa Phiên Mỹ)
-    # - 16:07 UTC = 23:07 đêm VN (Ca đêm Futures Phiên Mỹ)
-    - cron: "7 1,5,9,13,16 * * *"
+    # Bật thêm nhịp */5 để kiểm chứng trực tiếp bộ đếm schedule của GitHub,
+    # cộng với 4 nhịp bọc lót (phút 03, 13, 23, 33) ở mỗi khung giờ vàng (08h, 12h, 16h, 20h, 23h VN)
+    - cron: "*/5 * * * *"
+    - cron: "3,13,23,33 1,5,9,13,16 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Bỏ qua khóa thời gian và đăng bài ngay lập tức (true/false)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   auto-post-square:
@@ -18,19 +23,103 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Check Golden Hour Window & Artifact Lock (Chống đăng trùng tuyệt đối)
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_RUN: ${{ github.event.inputs.force || 'false' }}
+          TZ: Asia/Ho_Chi_Minh
+        run: |
+          python3 - << 'EOF'
+          import datetime, json, os, urllib.request
+
+          event_name = os.environ.get("EVENT_NAME", "")
+          force_run = os.environ.get("FORCE_RUN", "false").lower() == "true"
+          repo = os.environ.get("REPO", "")
+          token = os.environ.get("GH_TOKEN", "")
+          github_output = os.environ["GITHUB_OUTPUT"]
+
+          vn_tz = datetime.timezone(datetime.timedelta(hours=7))
+          now_vn = datetime.datetime.now(vn_tz)
+          now_utc = datetime.datetime.now(datetime.timezone.utc)
+          print(f"Current Vietnam time: {now_vn.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+          # Khi bấm nút chạy tay kèm force=true thì luôn đăng ngay
+          if event_name == "workflow_dispatch" and force_run:
+              print("Manual force_run=true -> proceeding immediately.")
+              with open(github_output, "a") as f:
+                  f.write("should_post=true\n")
+              raise SystemExit(0)
+
+          # Kiểm tra có đang nằm trong 5 khung giờ vàng Việt Nam không: 08h, 12h, 16h, 20h, 23h
+          golden_hours = {8, 12, 16, 20, 23}
+          if event_name == "schedule" and now_vn.hour not in golden_hours:
+              print(f"Schedule heartbeat check passed at VN hour {now_vn.hour}:00 (outside golden hours {sorted(golden_hours)}). Skipping post.")
+              with open(github_output, "a") as f:
+                  f.write("should_post=false\n")
+              raise SystemExit(0)
+
+          # Kiểm tra thời điểm đăng bài thành công gần nhất qua GitHub Artifact 'last-binance-post'
+          url = f"https://api.github.com/repos/{repo}/actions/artifacts?name=last-binance-post&per_page=1"
+          req = urllib.request.Request(url, headers={
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "BinanceSquareAuto"
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  data = json.loads(resp.read().decode("utf-8"))
+              artifacts = data.get("artifacts", [])
+              if artifacts:
+                  created_str = artifacts[0]["created_at"]
+                  last_dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                  diff_sec = (now_utc - last_dt).total_seconds()
+                  print(f"Last successful post artifact was {int(diff_sec)}s ago ({created_str}).")
+                  if diff_sec < 5400:  # Khóa 90 phút trong cùng 1 khung giờ vàng
+                      print("Already posted in this golden hour window (<90m). Skipping duplicate.")
+                      with open(github_output, "a") as f:
+                          f.write("should_post=false\n")
+                      raise SystemExit(0)
+          except SystemExit:
+              raise
+          except Exception as exc:
+              print(f"Artifact check warning (proceeding): {exc}")
+
+          print("Golden hour active and no recent post in last 90m -> proceeding to post!")
+          with open(github_output, "a") as f:
+              f.write("should_post=true\n")
+          EOF
+
       - name: Checkout repository
+        if: steps.gate.outputs.should_post == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python 3.12
+        if: steps.gate.outputs.should_post == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        if: steps.gate.outputs.should_post == 'true'
         run: pip install --upgrade pip requests
 
       - name: Run Auto Square Pro via Binance Square OpenAPI
+        if: steps.gate.outputs.should_post == 'true'
         env:
           TZ: Asia/Ho_Chi_Minh
           BINANCE_SQUARE_OPENAPI_KEY: ${{ secrets.BINANCE_SQUARE_OPENAPI_KEY }}
-        run: python auto_square_pro.py --openapi
+        run: |
+          python auto_square_pro.py --openapi
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > post_marker.txt
+
+      - name: Save Post Timestamp Artifact (Khóa chống trùng 90 phút không chạm vào Git)
+        if: steps.gate.outputs.should_post == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: last-binance-post
+          path: post_marker.txt
+          retention-days: 7
+          overwrite: true
