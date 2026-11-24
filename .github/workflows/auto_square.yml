@@ -55,8 +55,8 @@ jobs:
 
           # Kiểm tra có đang nằm trong 5 khung giờ vàng Việt Nam không: 08h, 12h, 16h, 20h, 23h
           golden_hours = {8, 12, 16, 20, 23}
-          if event_name == "schedule" and now_vn.hour not in golden_hours:
-              print(f"Schedule heartbeat check passed at VN hour {now_vn.hour}:00 (outside golden hours {sorted(golden_hours)}). Skipping post.")
+          if not force_run and now_vn.hour not in golden_hours:
+              print(f"Heartbeat check passed at VN hour {now_vn.hour}:00 (outside golden hours {sorted(golden_hours)}). Skipping post.")
               with open(github_output, "a") as f:
                   f.write("should_post=false\n")
               raise SystemExit(0)
